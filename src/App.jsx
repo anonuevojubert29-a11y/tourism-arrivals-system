@@ -12,7 +12,7 @@ import DataPanel from "./components/DataPanel.jsx";
 import AccountSettings from "./components/AccountSettings.jsx";
 import {
   ensureSeedData, fetchUsers, fetchAccommodations, loginUser, registerAccommodation, updateAccommodation,
-  updateUserAccount,
+  updateUserAccount, restoreApiSession, logoutUser, backendMode,
 } from "./lib/data.js";
 
 const SESSION_KEY = "tas_session_user_id";
@@ -39,22 +39,41 @@ export default function App() {
       setInitialError("");
       setUsers(null);
       setAccommodations(null);
+      setCurrentUser(null);
       try {
         await ensureSeedData();
+
+        if (backendMode === "mysql") {
+          const restored = await restoreApiSession();
+          if (!active) return;
+          if (!restored) {
+            setUsers([]);
+            setAccommodations([]);
+            return;
+          }
+          const [a, u] = await Promise.all([
+            fetchAccommodations(),
+            restored.role === "superadmin" ? fetchUsers() : Promise.resolve([restored]),
+          ]);
+          if (!active) return;
+          setUsers(u);
+          setAccommodations(a);
+          setCurrentUser(restored);
+          setMainTab(defaultTabFor(restored));
+          return;
+        }
+
         const [u, a] = await Promise.all([fetchUsers(), fetchAccommodations()]);
         if (!active) return;
         setUsers(u);
         setAccommodations(a);
-
         const savedId = window.localStorage.getItem(SESSION_KEY);
-        if (savedId) {
-          const restored = u.find((usr) => usr.id === savedId);
-          if (restored) {
-            setCurrentUser(restored);
-            setMainTab(defaultTabFor(restored));
-          } else {
-            window.localStorage.removeItem(SESSION_KEY);
-          }
+        const restored = savedId ? u.find((usr) => usr.id === savedId) : null;
+        if (restored) {
+          setCurrentUser(restored);
+          setMainTab(defaultTabFor(restored));
+        } else if (savedId) {
+          window.localStorage.removeItem(SESSION_KEY);
         }
       } catch (error) {
         if (active) setInitialError(error.message || "The system could not load its data.");
@@ -68,12 +87,31 @@ export default function App() {
     setTimeout(() => setMessage(null), 3500);
   }, []);
 
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      logoutUser();
+      setCurrentUser(null);
+      setUsers([]);
+      setAccommodations([]);
+      setAuthMode("login");
+      setAuthError("Your session expired. Please sign in again.");
+    };
+    window.addEventListener("tas:unauthorized", handleUnauthorized);
+    return () => window.removeEventListener("tas:unauthorized", handleUnauthorized);
+  }, []);
+
   async function handleLogin(username, password) {
     setAuthError("");
     try {
       const u = await loginUser(username, password);
       if (!u) { setAuthError("Invalid username or password."); return; }
-      window.localStorage.setItem(SESSION_KEY, u.id);
+      const [a, nextUsers] = await Promise.all([
+        fetchAccommodations(),
+        u.role === "superadmin" ? fetchUsers() : Promise.resolve([u]),
+      ]);
+      if (backendMode !== "mysql") window.localStorage.setItem(SESSION_KEY, u.id);
+      setUsers(nextUsers);
+      setAccommodations(a);
       setCurrentUser(u);
       setMainTab(defaultTabFor(u));
     } catch (error) {
@@ -84,12 +122,12 @@ export default function App() {
   async function handleRegister(form) {
     setAuthError("");
     if (form.password !== form.confirm) { setAuthError("Passwords do not match."); return; }
-    if (!form.password || form.password.length < 4) { setAuthError("Password must be at least 4 characters."); return; }
+    if (!form.password || form.password.length < 8) { setAuthError("Password must be at least 8 characters."); return; }
     try {
       const { accommodation, user } = await registerAccommodation(form);
-      setAccommodations((prev) => [...prev, accommodation]);
-      setUsers((prev) => [...prev, user]);
-      window.localStorage.setItem(SESSION_KEY, user.id);
+      setAccommodations((prev) => [...(prev || []), accommodation]);
+      setUsers((prev) => [...(prev || []), user]);
+      if (backendMode !== "mysql") window.localStorage.setItem(SESSION_KEY, user.id);
       setCurrentUser(user);
       setMainTab("overnight");
     } catch (err) {
@@ -122,8 +160,13 @@ export default function App() {
   }
 
   function handleLogout() {
+    logoutUser();
     window.localStorage.removeItem(SESSION_KEY);
     setCurrentUser(null);
+    if (backendMode === "mysql") {
+      setUsers([]);
+      setAccommodations([]);
+    }
     setAuthMode("login");
     setAuthError("");
   }

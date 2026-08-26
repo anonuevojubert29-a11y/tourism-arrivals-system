@@ -161,10 +161,12 @@ for Postgres, or a hosted API) — only `src/lib/data.js` would need to change.
 
 ## Security notes
 
-- **MySQL mode**: passwords are hashed with bcrypt server-side. Reasonably
-  solid for a small internal tool; for a public-facing deployment you'd also
-  want real sessions/JWTs instead of the current "check password, return
-  user object" login, HTTPS, and rate limiting on `/api/auth/login`.
+- **MySQL mode**: passwords are hashed with bcrypt server-side. Successful
+  login and registration issue a time-limited JWT, and every data route checks
+  both authentication and the caller's role/accommodation ownership. Set a
+  strong, unique `JWT_SECRET` in the deployment environment and serve the app
+  over HTTPS. Login and registration attempts are rate-limited to reduce
+  automated abuse.
 - **localStorage fallback mode**: passwords are stored in plain text and
   there's no real session security — this mode is meant for local
   development and demos only, never production.

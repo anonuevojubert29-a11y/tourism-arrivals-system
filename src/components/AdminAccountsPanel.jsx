@@ -12,6 +12,10 @@ export default function AdminAccountsPanel({ users, setUsers, notify }) {
       notify("error", "Please fill in all fields.");
       return;
     }
+    if (form.password.length < 8) {
+      notify("error", "Password must be at least 8 characters.");
+      return;
+    }
     const result = await createAdmin({ name: form.name.trim(), username: form.username.trim(), password: form.password });
     if (result.ok) {
       setUsers([...users, result.user]);
@@ -29,7 +33,7 @@ export default function AdminAccountsPanel({ users, setUsers, notify }) {
         <form onSubmit={handleCreateAdmin}>
           <div className="tas-field"><label>Full name</label><input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} /></div>
           <div className="tas-field"><label>Username</label><input value={form.username} onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))} /></div>
-          <div className="tas-field"><label>Password</label><input type="password" value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} /></div>
+          <div className="tas-field"><label>Password</label><input type="password" minLength={8} value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} /></div>
           <button className="btn btn-primary" type="submit"><UserPlus size={14} /> Create account</button>
         </form>
       </div>

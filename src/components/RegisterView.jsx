@@ -31,9 +31,9 @@ export default function RegisterView({ onRegister, onSwitch, error }) {
           <div className="tas-field"><label>Contact person</label><input value={form.contactPerson} onChange={set("contactPerson")} /></div>
           <div className="tas-grid2">
             <div className="tas-field"><label>Staff username</label><input value={form.username} onChange={set("username")} required /></div>
-            <div className="tas-field"><label>Password</label><input type="password" value={form.password} onChange={set("password")} required /></div>
+            <div className="tas-field"><label>Password</label><input type="password" minLength={8} value={form.password} onChange={set("password")} required /></div>
           </div>
-          <div className="tas-field"><label>Confirm password</label><input type="password" value={form.confirm} onChange={set("confirm")} required /></div>
+          <div className="tas-field"><label>Confirm password</label><input type="password" minLength={8} value={form.confirm} onChange={set("confirm")} required /></div>
           <button type="submit" className="btn btn-primary btn-block auth-submit" style={{ marginTop: 6 }}>
             <UserPlus size={15} /> Submit registration
           </button>

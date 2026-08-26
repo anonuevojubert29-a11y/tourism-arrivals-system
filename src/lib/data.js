@@ -10,6 +10,7 @@ import { uid } from "./helpers.js";
 
 const API_BASE = (import.meta.env.VITE_API_BASE || "").replace(/\/$/, "");
 const API_TIMEOUT_MS = 12000;
+const API_TOKEN_KEY = "tas_api_token";
 const hasArtifactStorage = typeof window !== "undefined" && !!window.storage;
 const hasApi = !!API_BASE;
 
@@ -63,20 +64,40 @@ async function kvListKeys(prefix) {
 
 /* ---------------------------- MySQL REST API helper ---------------------------- */
 
+function getApiToken() {
+  return window.sessionStorage.getItem(API_TOKEN_KEY);
+}
+
+function setApiToken(token) {
+  if (token) window.sessionStorage.setItem(API_TOKEN_KEY, token);
+  else window.sessionStorage.removeItem(API_TOKEN_KEY);
+}
+
 async function apiFetch(path, options = {}) {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  const token = getApiToken();
 
   try {
     const res = await fetch(`${API_BASE}${path}`, {
-      headers: { "Content-Type": "application/json" },
       ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(options.headers || {}),
+      },
       signal: options.signal || controller.signal,
     });
     if (res.status === 404) return null;
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      throw new Error(body.error || `Server request failed (${res.status}).`);
+      const error = new Error(body.error || `Server request failed (${res.status}).`);
+      error.status = res.status;
+      if (res.status === 401 && !path.startsWith("/api/auth/")) {
+        setApiToken(null);
+        window.dispatchEvent(new Event("tas:unauthorized"));
+      }
+      throw error;
     }
     if (res.status === 204) return true;
     return res.json();
@@ -109,6 +130,23 @@ export async function ensureSeedData() {
   }
 }
 
+export async function restoreApiSession() {
+  if (!hasApi || !getApiToken()) return null;
+  try {
+    return await apiFetch("/api/auth/me");
+  } catch (error) {
+    if (error.status === 401) {
+      setApiToken(null);
+      return null;
+    }
+    throw error;
+  }
+}
+
+export function logoutUser() {
+  if (hasApi) setApiToken(null);
+}
+
 export async function fetchUsers() {
   if (hasApi) return (await apiFetch("/api/users")) || [];
   return kvGetJSON("users", []);
@@ -121,7 +159,9 @@ export async function fetchAccommodations() {
 
 export async function loginUser(username, password) {
   if (hasApi) {
-    return apiFetch("/api/auth/login", { method: "POST", body: JSON.stringify({ username, password }) });
+    const result = await apiFetch("/api/auth/login", { method: "POST", body: JSON.stringify({ username, password }) });
+    setApiToken(result.token);
+    return result.user;
   }
   const users = await kvGetJSON("users", []);
   return users.find((u) => u.username === username && u.password === password) || null;
@@ -129,7 +169,7 @@ export async function loginUser(username, password) {
 
 export async function registerAccommodation(form) {
   if (hasApi) {
-    return apiFetch("/api/auth/register", {
+    const result = await apiFetch("/api/auth/register", {
       method: "POST",
       body: JSON.stringify({
         accName: form.accName, municipality: form.municipality, address: form.address,
@@ -137,6 +177,8 @@ export async function registerAccommodation(form) {
         username: form.username, password: form.password,
       }),
     });
+    setApiToken(result.token);
+    return { accommodation: result.accommodation, user: result.user };
   }
   const users = await kvGetJSON("users", []);
   const accommodations = await kvGetJSON("accommodations", []);

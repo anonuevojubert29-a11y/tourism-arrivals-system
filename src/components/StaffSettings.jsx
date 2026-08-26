@@ -36,7 +36,7 @@ export default function StaffSettings({ accommodation, onSave, onUpdateAccount, 
   async function handleChangePassword(e) {
     e.preventDefault();
     if (!currentPassword || !newPassword) { notify("error", "Fill in both password fields."); return; }
-    if (newPassword.length < 4) { notify("error", "New password must be at least 4 characters."); return; }
+    if (newPassword.length < 8) { notify("error", "New password must be at least 8 characters."); return; }
     if (newPassword !== confirmPassword) { notify("error", "New passwords do not match."); return; }
     setSavingPassword(true);
     const result = await onUpdateAccount({ currentPassword, newPassword });
@@ -69,8 +69,8 @@ export default function StaffSettings({ accommodation, onSave, onUpdateAccount, 
         <p style={{ fontSize: 12.5, color: "var(--muted)", margin: "0 0 14px" }}>You'll need your current password to set a new one.</p>
         <form onSubmit={handleChangePassword}>
           <div className="tas-field"><label>Current password</label><input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} /></div>
-          <div className="tas-field"><label>New password</label><input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} /></div>
-          <div className="tas-field"><label>Confirm new password</label><input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} /></div>
+          <div className="tas-field"><label>New password</label><input type="password" minLength={8} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} /></div>
+          <div className="tas-field"><label>Confirm new password</label><input type="password" minLength={8} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} /></div>
           <button className="btn btn-primary" type="submit" disabled={savingPassword}><Save size={14} /> {savingPassword ? "Saving…" : "Change password"}</button>
         </form>
       </div>
