@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { Loader2, CheckCircle2, Plus, Trash2, Info } from "lucide-react";
+import { Loader2, CheckCircle2, Plus, Trash2 } from "lucide-react";
 import StatTile from "./StatTile.jsx";
 import CategoryStatTile from "./CategoryStatTile.jsx";
-import Banner from "./Banner.jsx";
 import { PlainStepper } from "./NumberField.jsx";
 import { fetchArrival, saveArrival } from "../lib/data.js";
 import { todayStr, computeTotals, emptyRecord, uid, COUNTRIES, CATEGORY_COLORS, VISIT_TYPE_LABEL } from "../lib/helpers.js";
@@ -66,12 +65,6 @@ export default function StaffEncode({ accommodation, visitType, date, setDate, n
             </span>
           )}
         </div>
-
-        <Banner type="info" icon={Info}>
-          {visitType === "daytour"
-            ? "Enter only day-tour visitors who are not staying overnight. Overnight visitors are added automatically to day-tour totals in dashboards and reports."
-            : "Overnight visitors are automatically included in day-tour totals. Record them only here so they are not counted twice."}
-        </Banner>
 
         <div className="stat-row">
           <StatTile label="Total guests" value={totals.grandTotal} />

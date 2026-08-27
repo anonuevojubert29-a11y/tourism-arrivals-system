@@ -169,8 +169,6 @@ table.tas-table tr:hover td{ background:#FAFCFB; }
 .banner-rejected{ background:var(--coral-pale); color:var(--coral); }
 .banner-error{ background:var(--coral-pale); color:var(--coral); }
 .banner-success{ background:var(--sea-pale); color:#1F7A4C; }
-.banner-info{ background:#EAF4F5; color:var(--teal-deep); }
-
 /* Centered action feedback and confirmation dialogs */
 .feedback-overlay{
   position:fixed; inset:0; z-index:1200; display:grid; place-items:center; padding:20px;
