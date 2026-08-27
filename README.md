@@ -86,11 +86,33 @@ step, the app just talks to MySQL directly instead of localStorage.
 You now run two processes side by side during development: `npm start` (or
 `npm run dev`) in `server/`, and `npm run dev` in the project root.
 
+### Email verification and password recovery
+
+New staff and admin accounts must verify a unique email address before their
+first sign-in. Configure these server variables before accepting registrations:
+
+```env
+APP_URL=http://localhost:5173
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=your-smtp-user
+SMTP_PASSWORD=your-smtp-password
+EMAIL_FROM=Tourism Arrivals System <no-reply@example.com>
+```
+
+Use `SMTP_SECURE=true` for implicit TLS on port 465; use `false` for port 587
+so the connection can upgrade with STARTTLS. Verification links expire after
+24 hours. Password-reset links require a verified address, expire after one
+hour, and can only be used once. Existing accounts created before this feature
+can add and verify an address under **My account**.
+
 ### MySQL schema
 
 ```
 accommodations            one row per registered establishment
 users                      staff / admin / superadmin, password_hash is bcrypt
+user_auth_tokens           hashed, expiring email-verification/reset tokens
 arrivals                   one row per (accommodation, date, visit type) —
                            visit_type is 'overnight' or 'daytour'
 arrival_foreign_entries    one row per country per arrival record
@@ -162,11 +184,13 @@ for Postgres, or a hosted API) — only `src/lib/data.js` would need to change.
 ## Security notes
 
 - **MySQL mode**: passwords are hashed with bcrypt server-side. Successful
-  login and registration issue a time-limited JWT, and every data route checks
-  both authentication and the caller's role/accommodation ownership. Set a
-  strong, unique `JWT_SECRET` in the deployment environment and serve the app
-  over HTTPS. Login and registration attempts are rate-limited to reduce
-  automated abuse.
+  login issues a time-limited JWT, and every data route checks authentication
+  plus the caller's role/accommodation ownership. New accounts cannot sign in
+  until their unique email is verified. Verification and reset tokens are
+  random, stored only as SHA-256 hashes, expiring, and single-use. Password
+  changes revoke older sessions. Set strong `JWT_SECRET` and SMTP credentials
+  in the deployment environment and serve the app over HTTPS. Login,
+  registration, and email actions are rate-limited.
 - **localStorage fallback mode**: passwords are stored in plain text and
   there's no real session security — this mode is meant for local
   development and demos only, never production.

@@ -3,6 +3,7 @@ import { Loader2, XCircle, CheckCircle2, RefreshCw, ServerOff } from "lucide-rea
 import Banner from "./components/Banner.jsx";
 import LoginView from "./components/LoginView.jsx";
 import RegisterView from "./components/RegisterView.jsx";
+import { EmailRequestView, ResetPasswordView, VerifyEmailView } from "./components/EmailAuthViews.jsx";
 import Sidebar from "./components/Sidebar.jsx";
 import StaffApp from "./components/StaffApp.jsx";
 import Overview from "./components/Overview.jsx";
@@ -13,6 +14,7 @@ import AccountSettings from "./components/AccountSettings.jsx";
 import {
   ensureSeedData, fetchUsers, fetchAccommodations, loginUser, registerAccommodation, updateAccommodation,
   updateUserAccount, restoreApiSession, logoutUser, backendMode,
+  verifyEmail, resendVerification, requestPasswordReset, resetPassword,
 } from "./lib/data.js";
 
 const SESSION_KEY = "tas_session_user_id";
@@ -22,11 +24,18 @@ function defaultTabFor(user) {
 }
 
 export default function App() {
+  const [emailLink] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("verifyEmail")) return { mode: "verify", token: params.get("verifyEmail") };
+    if (params.get("resetPassword")) return { mode: "reset", token: params.get("resetPassword") };
+    return null;
+  });
   const [users, setUsers] = useState(null);
   const [accommodations, setAccommodations] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
-  const [authMode, setAuthMode] = useState("login");
+  const [authMode, setAuthMode] = useState(emailLink?.mode || "login");
   const [authError, setAuthError] = useState("");
+  const [authNotice, setAuthNotice] = useState("");
   const [mainTab, setMainTab] = useState("overview");
   const [overviewFilterAccId, setOverviewFilterAccId] = useState(null);
   const [message, setMessage] = useState(null);
@@ -42,6 +51,12 @@ export default function App() {
       setCurrentUser(null);
       try {
         await ensureSeedData();
+
+        if (emailLink) {
+          setUsers([]);
+          setAccommodations([]);
+          return;
+        }
 
         if (backendMode === "mysql") {
           const restored = await restoreApiSession();
@@ -80,7 +95,7 @@ export default function App() {
       }
     })();
     return () => { active = false; };
-  }, [loadAttempt]);
+  }, [loadAttempt, emailLink]);
 
   const notify = useCallback((type, text) => {
     setMessage({ type, text });
@@ -102,6 +117,7 @@ export default function App() {
 
   async function handleLogin(username, password) {
     setAuthError("");
+    setAuthNotice("");
     try {
       const u = await loginUser(username, password);
       if (!u) { setAuthError("Invalid username or password."); return; }
@@ -121,10 +137,17 @@ export default function App() {
 
   async function handleRegister(form) {
     setAuthError("");
+    setAuthNotice("");
     if (form.password !== form.confirm) { setAuthError("Passwords do not match."); return; }
     if (!form.password || form.password.length < 8) { setAuthError("Password must be at least 8 characters."); return; }
     try {
-      const { accommodation, user } = await registerAccommodation(form);
+      const result = await registerAccommodation(form);
+      if (backendMode === "mysql") {
+        setAuthMode("login");
+        setAuthNotice(result.message || "Check your email to verify the account before signing in.");
+        return;
+      }
+      const { accommodation, user } = result;
       setAccommodations((prev) => [...(prev || []), accommodation]);
       setUsers((prev) => [...(prev || []), user]);
       if (backendMode !== "mysql") window.localStorage.setItem(SESSION_KEY, user.id);
@@ -159,6 +182,38 @@ export default function App() {
     return result;
   }
 
+  async function handleResendVerification(email) {
+    try {
+      const result = await resendVerification(email);
+      return { ok: true, message: result.message };
+    } catch (error) {
+      return { ok: false, error: error.message || "Could not send verification email." };
+    }
+  }
+
+  async function handleVerifyEmail(token) {
+    const result = await verifyEmail(token);
+    window.history.replaceState({}, "", window.location.pathname);
+    return result;
+  }
+
+  async function handleResetPassword(token, password) {
+    const result = await resetPassword(token, password);
+    window.history.replaceState({}, "", window.location.pathname);
+    return result;
+  }
+
+  function showAuthMode(mode) {
+    setAuthMode(mode);
+    setAuthError("");
+    setAuthNotice("");
+  }
+
+  function returnToLogin() {
+    window.history.replaceState({}, "", window.location.pathname);
+    showAuthMode("login");
+  }
+
   function handleLogout() {
     logoutUser();
     window.localStorage.removeItem(SESSION_KEY);
@@ -169,6 +224,7 @@ export default function App() {
     }
     setAuthMode("login");
     setAuthError("");
+    setAuthNotice("");
   }
 
   if (initialError) {
@@ -198,13 +254,36 @@ export default function App() {
   }
 
   if (!currentUser) {
+    let authView;
+    if (authMode === "register") {
+      authView = <RegisterView onRegister={handleRegister} onSwitch={returnToLogin} error={authError} />;
+    } else if (authMode === "forgot" || authMode === "resend") {
+      authView = (
+        <EmailRequestView
+          mode={authMode}
+          onSubmit={authMode === "forgot" ? requestPasswordReset : resendVerification}
+          onBack={returnToLogin}
+        />
+      );
+    } else if (authMode === "verify") {
+      authView = <VerifyEmailView token={emailLink?.token} onVerify={handleVerifyEmail} onBack={returnToLogin} />;
+    } else if (authMode === "reset") {
+      authView = <ResetPasswordView token={emailLink?.token} onReset={handleResetPassword} onBack={returnToLogin} />;
+    } else {
+      authView = (
+        <LoginView
+          onLogin={handleLogin}
+          onSwitch={() => showAuthMode("register")}
+          onForgotPassword={() => showAuthMode("forgot")}
+          onResendVerification={() => showAuthMode("resend")}
+          error={authError}
+          notice={authNotice}
+        />
+      );
+    }
     return (
       <div className="tas-root">
-        {authMode === "login" ? (
-          <LoginView onLogin={handleLogin} onSwitch={() => { setAuthMode("register"); setAuthError(""); }} error={authError} />
-        ) : (
-          <RegisterView onRegister={handleRegister} onSwitch={() => { setAuthMode("login"); setAuthError(""); }} error={authError} />
-        )}
+        {authView}
       </div>
     );
   }
@@ -235,6 +314,7 @@ export default function App() {
             user={currentUser}
             accommodation={staffAccommodation}
             onUpdateAccount={handleUpdateAccount}
+            onResendVerification={handleResendVerification}
             notify={notify}
           />
         )}

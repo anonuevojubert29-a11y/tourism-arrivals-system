@@ -93,6 +93,7 @@ async function apiFetch(path, options = {}) {
       const body = await res.json().catch(() => ({}));
       const error = new Error(body.error || `Server request failed (${res.status}).`);
       error.status = res.status;
+      error.code = body.code;
       if (res.status === 401 && !path.startsWith("/api/auth/")) {
         setApiToken(null);
         window.dispatchEvent(new Event("tas:unauthorized"));
@@ -169,16 +170,14 @@ export async function loginUser(username, password) {
 
 export async function registerAccommodation(form) {
   if (hasApi) {
-    const result = await apiFetch("/api/auth/register", {
+    return apiFetch("/api/auth/register", {
       method: "POST",
       body: JSON.stringify({
         accName: form.accName, municipality: form.municipality, address: form.address,
         contactPerson: form.contactPerson, contactNumber: form.contactNumber, permitNumber: form.permitNumber,
-        username: form.username, password: form.password,
+        username: form.username, email: form.email, password: form.password,
       }),
     });
-    setApiToken(result.token);
-    return { accommodation: result.accommodation, user: result.user };
   }
   const users = await kvGetJSON("users", []);
   const accommodations = await kvGetJSON("accommodations", []);
@@ -195,6 +194,7 @@ export async function registerAccommodation(form) {
   const user = {
     id: uid(), username: form.username.trim(), password: form.password, role: "staff",
     name: form.contactPerson.trim() || form.accName.trim(), accommodationId: accId,
+    email: form.email.trim().toLowerCase(), emailVerified: true,
   };
   await kvSetJSON("accommodations", [...accommodations, accommodation]);
   await kvSetJSON("users", [...users, user]);
@@ -215,10 +215,10 @@ export async function updateAccommodation(id, patch) {
   return kvSetJSON("accommodations", next);
 }
 
-export async function createAdmin({ name, username, password }) {
+export async function createAdmin({ name, username, email, password }) {
   if (hasApi) {
     try {
-      const user = await apiFetch("/api/users", { method: "POST", body: JSON.stringify({ name, username, password }) });
+      const user = await apiFetch("/api/users", { method: "POST", body: JSON.stringify({ name, username, email, password }) });
       return { ok: true, user };
     } catch (e) {
       return { ok: false, error: e.message };
@@ -228,19 +228,20 @@ export async function createAdmin({ name, username, password }) {
   if (users.some((u) => u.username === username)) {
     return { ok: false, error: "That username is already taken." };
   }
-  const user = { id: uid(), name, username, password, role: "admin" };
+  const user = { id: uid(), name, username, email, emailVerified: true, password, role: "admin" };
   const ok = await kvSetJSON("users", [...users, user]);
   return ok ? { ok: true, user } : { ok: false, error: "Could not save account." };
 }
 
-export async function updateUserAccount(userId, { name, currentPassword, newPassword } = {}) {
+export async function updateUserAccount(userId, { name, email, currentPassword, newPassword } = {}) {
   if (hasApi) {
     try {
-      const user = await apiFetch(`/api/users/${userId}`, {
+      const result = await apiFetch(`/api/users/${userId}`, {
         method: "PATCH",
-        body: JSON.stringify({ name, currentPassword, newPassword }),
+        body: JSON.stringify({ name, email, currentPassword, newPassword }),
       });
-      return { ok: true, user };
+      if (result.token) setApiToken(result.token);
+      return { ok: true, user: result.user, verificationSent: result.verificationSent };
     } catch (e) {
       return { ok: false, error: e.message };
     }
@@ -256,10 +257,31 @@ export async function updateUserAccount(userId, { name, currentPassword, newPass
   const updated = {
     ...existing,
     ...(name ? { name } : {}),
+    ...(email ? { email, emailVerified: true } : {}),
     ...(newPassword ? { password: newPassword } : {}),
   };
   const ok = await kvSetJSON("users", users.map((u) => (u.id === userId ? updated : u)));
   return ok ? { ok: true, user: updated } : { ok: false, error: "Could not save changes." };
+}
+
+export async function verifyEmail(token) {
+  if (!hasApi) return { message: "Email verified. You can now sign in." };
+  return apiFetch("/api/auth/verify-email", { method: "POST", body: JSON.stringify({ token }) });
+}
+
+export async function resendVerification(email) {
+  if (!hasApi) return { message: "Verification is not required in local demo mode." };
+  return apiFetch("/api/auth/resend-verification", { method: "POST", body: JSON.stringify({ email }) });
+}
+
+export async function requestPasswordReset(email) {
+  if (!hasApi) return { message: "Password recovery requires the configured server." };
+  return apiFetch("/api/auth/forgot-password", { method: "POST", body: JSON.stringify({ email }) });
+}
+
+export async function resetPassword(token, newPassword) {
+  if (!hasApi) throw new Error("Password recovery requires the configured server.");
+  return apiFetch("/api/auth/reset-password", { method: "POST", body: JSON.stringify({ token, newPassword }) });
 }
 
 export async function fetchArrival(accommodationId, visitType, date) {

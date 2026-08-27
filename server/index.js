@@ -3,8 +3,10 @@ import cors from "cors";
 import dotenv from "dotenv";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
 import { rateLimit } from "express-rate-limit";
 import { pool } from "./db.js";
+import { isMailConfigured, sendPasswordResetEmail, sendVerificationEmail } from "./mail.js";
 
 dotenv.config();
 
@@ -59,8 +61,47 @@ const registrationLimiter = rateLimit({
   message: { error: "Too many registration attempts. Please try again later." },
 });
 
+const emailActionLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 8,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  message: { error: "Too many email requests. Please try again later." },
+});
+
 function genId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+function normalizeEmail(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function isValidEmail(email) {
+  return email.length <= 255 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function hashActionToken(token) {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+async function createActionToken(connection, userId, tokenType, lifetimeMs) {
+  const token = crypto.randomBytes(32).toString("hex");
+  await connection.query(
+    "DELETE FROM user_auth_tokens WHERE user_id = ? AND token_type = ? AND used_at IS NULL",
+    [userId, tokenType]
+  );
+  await connection.query(
+    "INSERT INTO user_auth_tokens (user_id, token_type, token_hash, expires_at) VALUES (?, ?, ?, ?)",
+    [userId, tokenType, hashActionToken(token), new Date(Date.now() + lifetimeMs)]
+  );
+  return token;
+}
+
+function requireMailService(res) {
+  if (isMailConfigured()) return true;
+  res.status(503).json({ error: "Email verification is temporarily unavailable. Please contact the system administrator." });
+  return false;
 }
 
 // Wraps an async route handler so rejected promises reach the error
@@ -88,15 +129,17 @@ function mapUser(row) {
   return {
     id: row.id,
     username: row.username,
+    email: row.email || "",
+    emailVerified: Boolean(row.email_verified_at),
     role: row.role,
     name: row.name,
     accommodationId: row.accommodation_id,
   };
 }
 
-function signToken(user) {
+function signToken(user, authVersion = 0) {
   return jwt.sign(
-    { sub: user.id },
+    { sub: user.id, ver: Number(authVersion) },
     JWT_SECRET,
     {
       algorithm: "HS256",
@@ -125,10 +168,13 @@ async function requireAuth(req, res, next) {
 
   try {
     const [rows] = await pool.query(
-      "SELECT id, username, role, name, accommodation_id FROM users WHERE id = ?",
+      "SELECT id, username, email, email_verified_at, auth_version, role, name, accommodation_id FROM users WHERE id = ?",
       [payload.sub]
     );
     if (rows.length === 0) return res.status(401).json({ error: "Account no longer exists." });
+    if (Number(payload.ver) !== Number(rows[0].auth_version)) {
+      return res.status(401).json({ error: "Your session is no longer valid. Please sign in again." });
+    }
     req.user = mapUser(rows[0]);
     next();
   } catch (error) {
@@ -220,7 +266,7 @@ app.get(
   requireRole("superadmin"),
   ah(async (req, res) => {
     const [rows] = await pool.query(
-      "SELECT id, username, role, name, accommodation_id FROM users ORDER BY created_at ASC"
+      "SELECT id, username, email, email_verified_at, role, name, accommodation_id FROM users ORDER BY created_at ASC"
     );
     res.json(rows.map(mapUser));
   })
@@ -231,23 +277,42 @@ app.post(
   requireAuth,
   requireRole("superadmin"),
   ah(async (req, res) => {
-    const { name, username, password } = req.body || {};
-    if (!name || !username || !password) return res.status(400).json({ error: "Missing fields" });
+    const { name, username, email, password } = req.body || {};
+    if (!name || !username || !email || !password) return res.status(400).json({ error: "All fields are required." });
+    if (!requireMailService(res)) return;
     if (typeof password !== "string" || password.length < 8) {
       return res.status(400).json({ error: "Password must be at least 8 characters." });
     }
     const cleanName = String(name).trim();
     const cleanUsername = String(username).trim();
+    const cleanEmail = normalizeEmail(email);
     if (!cleanName || !cleanUsername) return res.status(400).json({ error: "Missing fields" });
-    const [existing] = await pool.query("SELECT id FROM users WHERE username = ?", [cleanUsername]);
-    if (existing.length > 0) return res.status(409).json({ error: "That username is already taken." });
+    if (!isValidEmail(cleanEmail)) return res.status(400).json({ error: "Enter a valid email address." });
+    const [existing] = await pool.query("SELECT username, email FROM users WHERE username = ? OR email = ?", [cleanUsername, cleanEmail]);
+    if (existing.some((user) => user.username === cleanUsername)) return res.status(409).json({ error: "That username is already taken." });
+    if (existing.some((user) => user.email === cleanEmail)) return res.status(409).json({ error: "That email address is already registered." });
     const passwordHash = await bcrypt.hash(password, 10);
     const id = genId();
-    await pool.query(
-      "INSERT INTO users (id, username, password_hash, role, name) VALUES (?, ?, ?, 'admin', ?)",
-      [id, cleanUsername, passwordHash, cleanName]
-    );
-    res.status(201).json({ id, username: cleanUsername, role: "admin", name: cleanName, accommodationId: null });
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      await connection.query(
+        "INSERT INTO users (id, username, email, password_hash, role, name) VALUES (?, ?, ?, ?, 'admin', ?)",
+        [id, cleanUsername, cleanEmail, passwordHash, cleanName]
+      );
+      const token = await createActionToken(connection, id, "verify_email", 24 * 60 * 60 * 1000);
+      await sendVerificationEmail(cleanEmail, token);
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+    res.status(201).json({
+      id, username: cleanUsername, email: cleanEmail, emailVerified: false,
+      role: "admin", name: cleanName, accommodationId: null,
+    });
   })
 );
 
@@ -259,17 +324,33 @@ app.patch(
     if (req.user.id !== id) {
       return res.status(403).json({ error: "You can only update your own account." });
     }
-    const { name, currentPassword, newPassword } = req.body || {};
+    const { name, email, currentPassword, newPassword } = req.body || {};
     const [rows] = await pool.query("SELECT * FROM users WHERE id = ?", [id]);
     if (rows.length === 0) return res.status(404).json({ error: "Account not found." });
 
     const sets = [];
     const values = [];
+    let emailChanged = false;
+    let passwordChanged = false;
     if (name) {
       const cleanName = String(name).trim();
       if (!cleanName) return res.status(400).json({ error: "Name cannot be empty." });
       sets.push("name = ?");
       values.push(cleanName);
+    }
+    if (email !== undefined) {
+      const cleanEmail = normalizeEmail(email);
+      if (!isValidEmail(cleanEmail)) return res.status(400).json({ error: "Enter a valid email address." });
+      if (cleanEmail !== (rows[0].email || "")) {
+        if (!requireMailService(res)) return;
+        const match = await bcrypt.compare(currentPassword || "", rows[0].password_hash);
+        if (!match) return res.status(403).json({ error: "Current password is required to change your email." });
+        const [existing] = await pool.query("SELECT id FROM users WHERE email = ? AND id <> ?", [cleanEmail, id]);
+        if (existing.length > 0) return res.status(409).json({ error: "That email address is already registered." });
+        sets.push("email = ?", "email_verified_at = NULL");
+        values.push(cleanEmail);
+        emailChanged = true;
+      }
     }
     if (newPassword) {
       if (typeof newPassword !== "string" || newPassword.length < 8) {
@@ -279,16 +360,35 @@ app.patch(
       if (!match) return res.status(403).json({ error: "Current password is incorrect." });
       sets.push("password_hash = ?");
       values.push(await bcrypt.hash(newPassword, 10));
+      sets.push("auth_version = auth_version + 1");
+      passwordChanged = true;
     }
     if (sets.length === 0) return res.status(400).json({ error: "No fields to update" });
-    values.push(id);
-    await pool.query(`UPDATE users SET ${sets.join(", ")} WHERE id = ?`, values);
-
-    const [updated] = await pool.query(
-      "SELECT id, username, role, name, accommodation_id FROM users WHERE id = ?",
-      [id]
-    );
-    res.json(mapUser(updated[0]));
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      await connection.query(`UPDATE users SET ${sets.join(", ")} WHERE id = ?`, [...values, id]);
+      if (emailChanged) {
+        const token = await createActionToken(connection, id, "verify_email", 24 * 60 * 60 * 1000);
+        await sendVerificationEmail(normalizeEmail(email), token);
+      }
+      const [updated] = await connection.query(
+        "SELECT id, username, email, email_verified_at, auth_version, role, name, accommodation_id FROM users WHERE id = ?",
+        [id]
+      );
+      await connection.commit();
+      const user = mapUser(updated[0]);
+      res.json({
+        user,
+        ...(passwordChanged ? { token: signToken(user, updated[0].auth_version) } : {}),
+        verificationSent: emailChanged,
+      });
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
   })
 );
 
@@ -304,8 +404,14 @@ app.post(
     if (rows.length === 0) return res.status(401).json({ error: "Invalid username or password." });
     const match = await bcrypt.compare(password, rows[0].password_hash);
     if (!match) return res.status(401).json({ error: "Invalid username or password." });
+    if (rows[0].email && !rows[0].email_verified_at) {
+      return res.status(403).json({
+        code: "EMAIL_NOT_VERIFIED",
+        error: "Verify your email address before signing in. You can request a new verification link below.",
+      });
+    }
     const user = mapUser(rows[0]);
-    res.json({ user, token: signToken(user) });
+    res.json({ user, token: signToken(user, rows[0].auth_version) });
   })
 );
 
@@ -317,42 +423,190 @@ app.post(
   "/api/auth/register",
   registrationLimiter,
   ah(async (req, res) => {
-    const { accName, municipality, address, contactPerson, contactNumber, permitNumber, username, password } = req.body || {};
-    if (!accName || !username || !password) return res.status(400).json({ error: "Missing fields" });
+    const { accName, municipality, address, contactPerson, contactNumber, permitNumber, username, email, password } = req.body || {};
+    if (!accName || !username || !email || !password) return res.status(400).json({ error: "All required fields must be completed." });
+    if (!requireMailService(res)) return;
     if (typeof password !== "string" || password.length < 8) {
       return res.status(400).json({ error: "Password must be at least 8 characters." });
     }
     const cleanUsername = String(username).trim();
     const cleanAccName = String(accName).trim();
+    const cleanEmail = normalizeEmail(email);
     if (!cleanUsername || !cleanAccName) return res.status(400).json({ error: "Missing fields" });
-    const [existing] = await pool.query("SELECT id FROM users WHERE username = ?", [cleanUsername]);
-    if (existing.length > 0) return res.status(409).json({ error: "That username is already taken." });
+    if (!isValidEmail(cleanEmail)) return res.status(400).json({ error: "Enter a valid email address." });
+    const [existing] = await pool.query("SELECT username, email FROM users WHERE username = ? OR email = ?", [cleanUsername, cleanEmail]);
+    if (existing.some((user) => user.username === cleanUsername)) return res.status(409).json({ error: "That username is already taken." });
+    if (existing.some((user) => user.email === cleanEmail)) return res.status(409).json({ error: "That email address is already registered." });
 
     const accId = genId();
     const userId = genId();
     const passwordHash = await bcrypt.hash(password, 10);
 
-    await pool.query(
-      `INSERT INTO accommodations (id, name, municipality, address, contact_person, contact_number, permit_number, status, fully_booked)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 0)`,
-      [accId, cleanAccName, municipality || "", address || "", contactPerson || "", contactNumber || "", permitNumber || ""]
-    );
-    await pool.query(
-      "INSERT INTO users (id, username, password_hash, role, name, accommodation_id) VALUES (?, ?, ?, 'staff', ?, ?)",
-      [userId, cleanUsername, passwordHash, contactPerson || cleanAccName, accId]
-    );
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      await connection.query(
+        `INSERT INTO accommodations (id, name, municipality, address, contact_person, contact_number, permit_number, status, fully_booked)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 0)`,
+        [accId, cleanAccName, municipality || "", address || "", contactPerson || "", contactNumber || "", permitNumber || ""]
+      );
+      await connection.query(
+        "INSERT INTO users (id, username, email, password_hash, role, name, accommodation_id) VALUES (?, ?, ?, ?, 'staff', ?, ?)",
+        [userId, cleanUsername, cleanEmail, passwordHash, contactPerson || cleanAccName, accId]
+      );
+      const token = await createActionToken(connection, userId, "verify_email", 24 * 60 * 60 * 1000);
+      await sendVerificationEmail(cleanEmail, token);
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
 
-    const [accRows] = await pool.query("SELECT * FROM accommodations WHERE id = ?", [accId]);
-    const [userRows] = await pool.query(
-      "SELECT id, username, role, name, accommodation_id FROM users WHERE id = ?",
-      [userId]
-    );
-    const user = mapUser(userRows[0]);
     res.status(201).json({
-      accommodation: mapAccommodation(accRows[0]),
-      user,
-      token: signToken(user),
+      verificationRequired: true,
+      email: cleanEmail,
+      message: "Registration submitted. Check your email to verify the account before signing in.",
     });
+  })
+);
+
+app.post(
+  "/api/auth/verify-email",
+  emailActionLimiter,
+  ah(async (req, res) => {
+    const token = String(req.body?.token || "");
+    if (!token) return res.status(400).json({ error: "Verification token is required." });
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [tokens] = await connection.query(
+        `SELECT id, user_id FROM user_auth_tokens
+         WHERE token_hash = ? AND token_type = 'verify_email' AND used_at IS NULL AND expires_at > NOW()
+         FOR UPDATE`,
+        [hashActionToken(token)]
+      );
+      if (tokens.length === 0) {
+        await connection.rollback();
+        return res.status(400).json({ error: "This verification link is invalid or has expired." });
+      }
+      await connection.query("UPDATE users SET email_verified_at = NOW() WHERE id = ?", [tokens[0].user_id]);
+      await connection.query("UPDATE user_auth_tokens SET used_at = NOW() WHERE id = ?", [tokens[0].id]);
+      await connection.query(
+        "DELETE FROM user_auth_tokens WHERE user_id = ? AND token_type = 'verify_email' AND id <> ?",
+        [tokens[0].user_id, tokens[0].id]
+      );
+      await connection.commit();
+      res.json({ message: "Email verified. You can now sign in." });
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  })
+);
+
+app.post(
+  "/api/auth/resend-verification",
+  emailActionLimiter,
+  ah(async (req, res) => {
+    if (!requireMailService(res)) return;
+    const email = normalizeEmail(req.body?.email);
+    if (!isValidEmail(email)) return res.status(400).json({ error: "Enter a valid email address." });
+    const [users] = await pool.query(
+      "SELECT id, email_verified_at FROM users WHERE email = ?",
+      [email]
+    );
+    if (users.length > 0 && !users[0].email_verified_at) {
+      const connection = await pool.getConnection();
+      try {
+        await connection.beginTransaction();
+        const token = await createActionToken(connection, users[0].id, "verify_email", 24 * 60 * 60 * 1000);
+        await sendVerificationEmail(email, token);
+        await connection.commit();
+      } catch (error) {
+        await connection.rollback();
+        throw error;
+      } finally {
+        connection.release();
+      }
+    }
+    res.json({ message: "If that address belongs to an unverified account, a new verification link has been sent." });
+  })
+);
+
+app.post(
+  "/api/auth/forgot-password",
+  emailActionLimiter,
+  ah(async (req, res) => {
+    if (!requireMailService(res)) return;
+    const email = normalizeEmail(req.body?.email);
+    if (!isValidEmail(email)) return res.status(400).json({ error: "Enter a valid email address." });
+    const [users] = await pool.query(
+      "SELECT id FROM users WHERE email = ? AND email_verified_at IS NOT NULL",
+      [email]
+    );
+    if (users.length > 0) {
+      const connection = await pool.getConnection();
+      try {
+        await connection.beginTransaction();
+        const token = await createActionToken(connection, users[0].id, "reset_password", 60 * 60 * 1000);
+        await sendPasswordResetEmail(email, token);
+        await connection.commit();
+      } catch (error) {
+        await connection.rollback();
+        throw error;
+      } finally {
+        connection.release();
+      }
+    }
+    res.json({ message: "If a verified account uses that address, a password-reset link has been sent." });
+  })
+);
+
+app.post(
+  "/api/auth/reset-password",
+  emailActionLimiter,
+  ah(async (req, res) => {
+    const token = String(req.body?.token || "");
+    const newPassword = req.body?.newPassword;
+    if (!token) return res.status(400).json({ error: "Reset token is required." });
+    if (typeof newPassword !== "string" || newPassword.length < 8) {
+      return res.status(400).json({ error: "Password must be at least 8 characters." });
+    }
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [tokens] = await connection.query(
+        `SELECT id, user_id FROM user_auth_tokens
+         WHERE token_hash = ? AND token_type = 'reset_password' AND used_at IS NULL AND expires_at > NOW()
+         FOR UPDATE`,
+        [hashActionToken(token)]
+      );
+      if (tokens.length === 0) {
+        await connection.rollback();
+        return res.status(400).json({ error: "This password-reset link is invalid or has expired." });
+      }
+      const passwordHash = await bcrypt.hash(newPassword, 10);
+      await connection.query(
+        "UPDATE users SET password_hash = ?, auth_version = auth_version + 1 WHERE id = ?",
+        [passwordHash, tokens[0].user_id]
+      );
+      await connection.query("UPDATE user_auth_tokens SET used_at = NOW() WHERE id = ?", [tokens[0].id]);
+      await connection.query(
+        "DELETE FROM user_auth_tokens WHERE user_id = ? AND token_type = 'reset_password' AND id <> ?",
+        [tokens[0].user_id, tokens[0].id]
+      );
+      await connection.commit();
+      res.json({ message: "Password changed. You can now sign in with your new password." });
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
   })
 );
 
@@ -517,6 +771,12 @@ app.put(
 
 app.use((err, req, res, next) => {
   console.error(err);
+  if (err.code === "ER_DUP_ENTRY") {
+    return res.status(409).json({ error: "That username or email address is already registered." });
+  }
+  if (["EAUTH", "ECONNECTION", "ETIMEDOUT", "ESOCKET", "EENVELOPE", "EMESSAGE"].includes(err.code)) {
+    return res.status(502).json({ error: "The email could not be sent. Please try again later." });
+  }
   res.status(500).json({ error: "Internal server error" });
 });
 

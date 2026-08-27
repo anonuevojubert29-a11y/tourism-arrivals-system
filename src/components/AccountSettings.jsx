@@ -1,15 +1,18 @@
 import React, { useState } from "react";
-import { UserCircle2, Save, KeyRound } from "lucide-react";
+import { UserCircle2, Save, KeyRound, MailCheck, Send } from "lucide-react";
 
 const ROLE_LABEL = { superadmin: "Super Admin", admin: "Admin", staff: "Accommodation Staff" };
 
-export default function AccountSettings({ user, accommodation, onUpdateAccount, notify }) {
+export default function AccountSettings({ user, accommodation, onUpdateAccount, onResendVerification, notify }) {
   const [name, setName] = useState(user.name || "");
   const [savingName, setSavingName] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [savingPassword, setSavingPassword] = useState(false);
+  const [email, setEmail] = useState(user.email || "");
+  const [emailPassword, setEmailPassword] = useState("");
+  const [savingEmail, setSavingEmail] = useState(false);
 
   async function handleSaveName(e) {
     e.preventDefault();
@@ -46,10 +49,62 @@ export default function AccountSettings({ user, accommodation, onUpdateAccount, 
     notify(result.ok ? "success" : "error", result.ok ? "Password changed." : (result.error || "Could not change password."));
   }
 
+  async function handleSaveEmail(e) {
+    e.preventDefault();
+    if (!email.trim() || !emailPassword) {
+      notify("error", "Enter an email address and your current password.");
+      return;
+    }
+    setSavingEmail(true);
+    const result = await onUpdateAccount({ email: email.trim(), currentPassword: emailPassword });
+    setSavingEmail(false);
+    if (result.ok) setEmailPassword("");
+    notify(
+      result.ok ? "success" : "error",
+      result.ok ? "Verification email sent. Open it before your next sign-in." : (result.error || "Could not update email.")
+    );
+  }
+
+  async function handleResend() {
+    setSavingEmail(true);
+    const result = await onResendVerification(user.email);
+    setSavingEmail(false);
+    notify(result.ok ? "success" : "error", result.ok ? result.message : result.error);
+  }
+
   return (
     <div>
       <div className="tas-pagehead">
         <div><h1>My account</h1><p>Manage your login details</p></div>
+      </div>
+      <div className="tas-card">
+        <div className="tas-cardhead"><MailCheck size={15} /> Verified email</div>
+        <p style={{ fontSize: 12.5, color: "var(--muted)", margin: "0 0 14px" }}>
+          A verified email is used for secure password recovery.
+        </p>
+        <form onSubmit={handleSaveEmail}>
+          <div className="tas-field">
+            <label>Email address</label>
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          </div>
+          <div className="tas-field">
+            <label>Current password</label>
+            <input type="password" value={emailPassword} onChange={(e) => setEmailPassword(e.target.value)} required />
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <button className="btn btn-primary" type="submit" disabled={savingEmail || email.trim().toLowerCase() === (user.email || "").toLowerCase()}>
+              <Save size={14} /> {savingEmail ? "Savingâ€¦" : user.email ? "Change email" : "Add email"}
+            </button>
+            {user.email && !user.emailVerified && (
+              <button className="btn btn-outline" type="button" onClick={handleResend} disabled={savingEmail}>
+                <Send size={14} /> Resend verification
+              </button>
+            )}
+            <span className={`badge ${user.emailVerified ? "badge-approved" : "badge-pending"}`}>
+              {user.emailVerified ? "Verified" : "Not verified"}
+            </span>
+          </div>
+        </form>
       </div>
       <div className="tas-card">
         <div className="tas-cardhead"><UserCircle2 size={15} /> Profile</div>

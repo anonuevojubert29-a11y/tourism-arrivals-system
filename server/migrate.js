@@ -37,6 +37,29 @@ async function main() {
     await connection.query("ALTER TABLE accommodations ADD COLUMN permit_number VARCHAR(100) NULL AFTER contact_number");
   }
 
+  const userColumns = [
+    ["email", "ALTER TABLE users ADD COLUMN email VARCHAR(255) NULL AFTER username"],
+    ["email_verified_at", "ALTER TABLE users ADD COLUMN email_verified_at DATETIME NULL AFTER email"],
+    ["auth_version", "ALTER TABLE users ADD COLUMN auth_version INT NOT NULL DEFAULT 0 AFTER password_hash"],
+  ];
+  for (const [columnName, statement] of userColumns) {
+    const [column] = await connection.query(
+      `SELECT COUNT(*) AS count FROM information_schema.columns
+       WHERE table_schema = 'tourism_arrivals' AND table_name = 'users' AND column_name = ?`,
+      [columnName]
+    );
+    if (column[0].count === 0) {
+      console.log(`Adding ${columnName} to users...`);
+      await connection.query(statement);
+    }
+  }
+
+  const [userIndexes] = await connection.query("SHOW INDEX FROM users");
+  if (!userIndexes.some((index) => index.Key_name === "uniq_users_email")) {
+    console.log("Adding unique email index to users...");
+    await connection.query("ALTER TABLE users ADD UNIQUE KEY uniq_users_email (email)");
+  }
+
   const [visitTypeCol] = await connection.query(
     `SELECT COUNT(*) AS count FROM information_schema.columns
      WHERE table_schema = 'tourism_arrivals' AND table_name = 'arrivals' AND column_name = 'visit_type'`

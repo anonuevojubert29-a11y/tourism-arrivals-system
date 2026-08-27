@@ -5,7 +5,7 @@ import Banner from "./Banner.jsx";
 export default function RegisterView({ onRegister, onSwitch, error }) {
   const [form, setForm] = useState({
     accName: "", municipality: "", address: "", contactPerson: "", contactNumber: "", permitNumber: "",
-    username: "", password: "", confirm: "",
+    username: "", email: "", password: "", confirm: "",
   });
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
   return (
@@ -16,8 +16,8 @@ export default function RegisterView({ onRegister, onSwitch, error }) {
           <h2 className="tas-display">Register accommodation</h2>
         </div>
         <p className="auth-sub">
-          Create your establishment's account. A system administrator will review and approve it
-          before you can submit arrivals.
+          Create your establishment's account. You must verify your email, then a system
+          administrator will review the accommodation before you can submit arrivals.
         </p>
         {error && <Banner type="error" icon={XCircle}>{error}</Banner>}
         <form onSubmit={(e) => { e.preventDefault(); onRegister(form); }}>
@@ -29,6 +29,7 @@ export default function RegisterView({ onRegister, onSwitch, error }) {
           <div className="tas-field"><label>Address</label><input value={form.address} onChange={set("address")} required /></div>
           <div className="tas-field"><label>Permit No.</label><input value={form.permitNumber} onChange={set("permitNumber")} required /></div>
           <div className="tas-field"><label>Contact person</label><input value={form.contactPerson} onChange={set("contactPerson")} /></div>
+          <div className="tas-field"><label>Email address</label><input type="email" autoComplete="email" value={form.email} onChange={set("email")} required /></div>
           <div className="tas-grid2">
             <div className="tas-field"><label>Staff username</label><input value={form.username} onChange={set("username")} required /></div>
             <div className="tas-field"><label>Password</label><input type="password" minLength={8} value={form.password} onChange={set("password")} required /></div>
