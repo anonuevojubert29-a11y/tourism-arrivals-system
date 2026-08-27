@@ -1,9 +1,10 @@
 import React, { useState } from "react";
-import { UserPlus, ShieldCheck } from "lucide-react";
-import { createAdmin } from "../lib/data.js";
+import { Trash2, UserPlus, ShieldCheck } from "lucide-react";
+import { createAdmin, deleteUserAccount } from "../lib/data.js";
 
-export default function AdminAccountsPanel({ users, setUsers, notify }) {
+export default function AdminAccountsPanel({ users, setUsers, currentUserId, notify }) {
   const [form, setForm] = useState({ name: "", username: "", email: "", password: "" });
+  const [removingId, setRemovingId] = useState(null);
   const admins = users.filter((u) => u.role === "admin" || u.role === "superadmin");
 
   async function handleCreateAdmin(e) {
@@ -26,6 +27,15 @@ export default function AdminAccountsPanel({ users, setUsers, notify }) {
     }
   }
 
+  async function handleRemoveAdmin(user) {
+    if (!window.confirm(`Permanently remove the admin account “${user.username}”? This cannot be undone.`)) return;
+    setRemovingId(user.id);
+    const result = await deleteUserAccount(user.id);
+    setRemovingId(null);
+    if (result.ok) setUsers(users.filter((item) => item.id !== user.id));
+    notify(result.ok ? "success" : "error", result.ok ? "Admin account permanently removed." : (result.error || "Could not remove account."));
+  }
+
   return (
     <div className="tas-grid2">
       <div className="tas-card">
@@ -41,19 +51,26 @@ export default function AdminAccountsPanel({ users, setUsers, notify }) {
       <div className="tas-card">
         <div className="tas-cardhead"><ShieldCheck size={15} /> Administrators ({admins.length})</div>
         <div className="table-scroll" role="region" aria-label="Administrator accounts" tabIndex="0">
-        <table className="tas-table">
-          <thead><tr><th>Name</th><th>Username</th><th>Email</th><th>Role</th></tr></thead>
-          <tbody>
-            {admins.map((u) => (
-              <tr key={u.id}>
-                <td>{u.name}</td>
-                <td className="tas-mono" style={{ fontSize: 12 }}>{u.username}</td>
-                <td>{u.email || "Not added"} {u.email && <span className={`badge ${u.emailVerified ? "badge-approved" : "badge-pending"}`}>{u.emailVerified ? "Verified" : "Pending"}</span>}</td>
-                <td><span className="badge badge-role">{u.role}</span></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+          <table className="tas-table">
+            <thead><tr><th>Name</th><th>Username</th><th>Email</th><th>Role</th><th></th></tr></thead>
+            <tbody>
+              {admins.map((u) => (
+                <tr key={u.id}>
+                  <td>{u.name}</td>
+                  <td className="tas-mono" style={{ fontSize: 12 }}>{u.username}</td>
+                  <td>{u.email || "Not added"} {u.email && <span className={`badge ${u.emailVerified ? "badge-approved" : "badge-pending"}`}>{u.emailVerified ? "Verified" : "Pending"}</span>}</td>
+                  <td><span className="badge badge-role">{u.role}</span></td>
+                  <td>
+                    {u.role === "admin" && u.id !== currentUserId && (
+                      <button className="btn btn-danger btn-sm" type="button" onClick={() => handleRemoveAdmin(u)} disabled={removingId === u.id}>
+                        <Trash2 size={13} /> {removingId === u.id ? "Removing…" : "Remove"}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>

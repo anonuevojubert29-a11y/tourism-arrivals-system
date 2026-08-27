@@ -16,8 +16,10 @@ of origin), rolled up into an admin dashboard, and printable as a report.
   foreign countries, a daily trend chart, a per-accommodation table, and a
   "Print report" button.
 - **Super admin** — everything admin has, plus approving/rejecting
-  registrations, creating admin accounts, and a Data page showing where the
-  underlying data lives.
+  registrations, creating/removing admin accounts, permanently removing
+  accommodation accounts, and a Data page showing where the underlying data
+  lives. The accommodations page also shows the linked account email and its
+  verification status.
 
 ## Quick start (no database required)
 

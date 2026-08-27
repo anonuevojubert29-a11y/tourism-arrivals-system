@@ -62,6 +62,16 @@ async function kvListKeys(prefix) {
   }
 }
 
+async function kvDeleteKey(key) {
+  try {
+    if (hasArtifactStorage && typeof kv.delete === "function") await kv.delete(key, true);
+    else window.localStorage.removeItem(key);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /* ---------------------------- MySQL REST API helper ---------------------------- */
 
 function getApiToken() {
@@ -189,6 +199,7 @@ export async function registerAccommodation(form) {
     id: accId, name: form.accName.trim(), municipality: form.municipality.trim(),
     address: form.address.trim(), contactPerson: form.contactPerson.trim(),
     contactNumber: form.contactNumber.trim(), permitNumber: form.permitNumber.trim(), status: "pending", fullyBooked: false,
+    email: form.email.trim().toLowerCase(), emailVerified: true, username: form.username.trim(),
     createdAt: new Date().toISOString(),
   };
   const user = {
@@ -215,6 +226,28 @@ export async function updateAccommodation(id, patch) {
   return kvSetJSON("accommodations", next);
 }
 
+export async function deleteAccommodationAccount(id) {
+  if (hasApi) {
+    try {
+      await apiFetch(`/api/accommodations/${id}`, { method: "DELETE" });
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
+  }
+  const [accommodations, users, arrivalKeys] = await Promise.all([
+    kvGetJSON("accommodations", []),
+    kvGetJSON("users", []),
+    kvListKeys(`arrival:${id}:`),
+  ]);
+  const results = await Promise.all([
+    kvSetJSON("accommodations", accommodations.filter((item) => item.id !== id)),
+    kvSetJSON("users", users.filter((user) => user.accommodationId !== id)),
+    ...arrivalKeys.map(kvDeleteKey),
+  ]);
+  return results.every(Boolean) ? { ok: true } : { ok: false, error: "Could not remove accommodation account." };
+}
+
 export async function createAdmin({ name, username, email, password }) {
   if (hasApi) {
     try {
@@ -231,6 +264,23 @@ export async function createAdmin({ name, username, email, password }) {
   const user = { id: uid(), name, username, email, emailVerified: true, password, role: "admin" };
   const ok = await kvSetJSON("users", [...users, user]);
   return ok ? { ok: true, user, verificationSent: true } : { ok: false, error: "Could not save account." };
+}
+
+export async function deleteUserAccount(userId) {
+  if (hasApi) {
+    try {
+      await apiFetch(`/api/users/${userId}`, { method: "DELETE" });
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
+  }
+  const users = await kvGetJSON("users", []);
+  const target = users.find((user) => user.id === userId);
+  if (!target) return { ok: false, error: "Account not found." };
+  if (target.role === "superadmin") return { ok: false, error: "The super-admin account cannot be deleted." };
+  const ok = await kvSetJSON("users", users.filter((user) => user.id !== userId));
+  return ok ? { ok: true } : { ok: false, error: "Could not remove account." };
 }
 
 export async function updateUserAccount(userId, { name, email, currentPassword, newPassword } = {}) {

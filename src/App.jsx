@@ -349,13 +349,14 @@ export default function App() {
               <AccommodationsPanel
                 accommodations={accommodations}
                 setAccommodations={setAccommodations}
+                setUsers={setUsers}
                 canManage={currentUser.role === "superadmin"}
                 notify={notify}
                 onViewDetails={(id) => { setOverviewFilterAccId(id); setMainTab("overview"); }}
               />
             )}
             {mainTab === "admins" && currentUser.role === "superadmin" && (
-              <AdminAccountsPanel users={users} setUsers={setUsers} notify={notify} />
+              <AdminAccountsPanel users={users} setUsers={setUsers} currentUserId={currentUser.id} notify={notify} />
             )}
             {mainTab === "data" && currentUser.role === "superadmin" && (
               <DataPanel users={users} accommodations={accommodations} />

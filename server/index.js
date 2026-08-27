@@ -119,6 +119,9 @@ function mapAccommodation(row) {
     contactPerson: row.contact_person,
     contactNumber: row.contact_number,
     permitNumber: row.permit_number,
+    email: row.account_email || "",
+    emailVerified: Boolean(row.account_email_verified_at),
+    username: row.account_username || "",
     status: row.status,
     fullyBooked: !!row.fully_booked,
     createdAt: row.created_at,
@@ -210,9 +213,54 @@ app.get(
   requireAuth,
   ah(async (req, res) => {
     const [rows] = req.user.role === "staff"
-      ? await pool.query("SELECT * FROM accommodations WHERE id = ?", [req.user.accommodationId])
-      : await pool.query("SELECT * FROM accommodations ORDER BY created_at DESC");
+      ? await pool.query(
+        `SELECT a.*, u.email AS account_email, u.email_verified_at AS account_email_verified_at,
+                u.username AS account_username
+         FROM accommodations a
+         LEFT JOIN users u ON u.accommodation_id = a.id AND u.role = 'staff'
+         WHERE a.id = ?`,
+        [req.user.accommodationId]
+      )
+      : await pool.query(
+        `SELECT a.*, u.email AS account_email, u.email_verified_at AS account_email_verified_at,
+                u.username AS account_username
+         FROM accommodations a
+         LEFT JOIN users u ON u.accommodation_id = a.id AND u.role = 'staff'
+         ORDER BY a.created_at DESC`
+      );
     res.json(rows.map(mapAccommodation));
+  })
+);
+
+app.delete(
+  "/api/accommodations/:id",
+  requireAuth,
+  requireRole("superadmin"),
+  ah(async (req, res) => {
+    const { id } = req.params;
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [accommodations] = await connection.query(
+        "SELECT id FROM accommodations WHERE id = ? FOR UPDATE",
+        [id]
+      );
+      if (accommodations.length === 0) {
+        await connection.rollback();
+        return res.status(404).json({ error: "Accommodation not found." });
+      }
+      // Delete linked users first. Deleting the accommodation first would set
+      // their accommodation_id to NULL and leave orphaned login accounts.
+      await connection.query("DELETE FROM users WHERE accommodation_id = ?", [id]);
+      await connection.query("DELETE FROM accommodations WHERE id = ?", [id]);
+      await connection.commit();
+      res.status(204).end();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
   })
 );
 
@@ -325,6 +373,31 @@ app.post(
       verificationSent,
       ...(!verificationSent ? { warning: "Account created, but the verification email could not be sent. Use Resend verification after checking the email configuration." } : {}),
     });
+  })
+);
+
+app.delete(
+  "/api/users/:id",
+  requireAuth,
+  requireRole("superadmin"),
+  ah(async (req, res) => {
+    const { id } = req.params;
+    if (req.user.id === id) {
+      return res.status(400).json({ error: "You cannot delete your own account." });
+    }
+    const [users] = await pool.query(
+      "SELECT id, role, accommodation_id FROM users WHERE id = ?",
+      [id]
+    );
+    if (users.length === 0) return res.status(404).json({ error: "Account not found." });
+    if (users[0].role === "superadmin") {
+      return res.status(403).json({ error: "The super-admin account cannot be deleted." });
+    }
+    if (users[0].role === "staff" && users[0].accommodation_id) {
+      return res.status(400).json({ error: "Remove this staff account from the Accommodations page." });
+    }
+    await pool.query("DELETE FROM users WHERE id = ?", [id]);
+    res.status(204).end();
   })
 );
 
