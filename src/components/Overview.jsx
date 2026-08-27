@@ -47,7 +47,11 @@ export default function Overview({ accommodations, initialAccId, dailyArrivals =
 
   useEffect(() => {
     setRecords(null);
-    fetchArrivalsInRange(from, to, accFilter, visitTypeFilter).then(setRecords);
+    // A tourist who stays overnight is also part of the day's visitor count.
+    // Fetch both raw record types for the inclusive day-tour view, but keep the
+    // overnight-only filter unchanged.
+    const storedVisitType = visitTypeFilter === "overnight" ? "overnight" : "all";
+    fetchArrivalsInRange(from, to, accFilter, storedVisitType).then(setRecords);
   }, [from, to, accFilter, visitTypeFilter]);
 
   const agg = useMemo(() => {
@@ -77,6 +81,15 @@ export default function Overview({ accommodations, initialAccId, dailyArrivals =
         overnightTotal += t.grandTotal;
         overnightMale += t.totalMale;
         overnightFemale += t.totalFemale;
+        if (visitTypeFilter !== "overnight") {
+          // Day-tour reporting is inclusive: overnight visitors also spent the
+          // day at the destination. The saved overnight record is not changed.
+          addOriginSexBreakdown(byVisitType.daytour, t);
+          daytourTotal += t.grandTotal;
+          daytourMale += t.totalMale;
+          daytourFemale += t.totalFemale;
+          seenVisitTypes.add("daytour");
+        }
       }
       byAcc[r.accommodationId] = byAcc[r.accommodationId] || {
         local: 0, domestic: 0, foreign: 0, male: 0, female: 0, total: 0,
@@ -91,6 +104,10 @@ export default function Overview({ accommodations, initialAccId, dailyArrivals =
       byAcc[r.accommodationId].total += t.grandTotal;
       addOriginSexBreakdown(byAcc[r.accommodationId].visitTypes[visitType], t);
       byAcc[r.accommodationId].seenVisitTypes.add(visitType);
+      if (visitType === "overnight" && visitTypeFilter !== "overnight") {
+        addOriginSexBreakdown(byAcc[r.accommodationId].visitTypes.daytour, t);
+        byAcc[r.accommodationId].seenVisitTypes.add("daytour");
+      }
       byDate[r.date] = (byDate[r.date] || 0) + t.grandTotal;
       for (const fe of r.foreignEntries || []) {
         if (!fe.country) continue;
@@ -103,16 +120,20 @@ export default function Overview({ accommodations, initialAccId, dailyArrivals =
     const sortedAccEntries = Object.entries(byAcc).sort(([, a], [, b]) => b.total - a.total);
     const byAccArr = sortedAccEntries
       .map(([id, v]) => ({ id, local: v.local, domestic: v.domestic, foreign: v.foreign, male: v.male, female: v.female, total: v.total }));
+    const visibleVisitTypes = VISIT_TYPES.filter((type) => visitTypeFilter === "all" || type.id === visitTypeFilter);
+    const reportLabel = (type) => type.id === "daytour" ? `${type.label} (includes overnight)` : type.label;
     const byAccVisitArr = sortedAccEntries
-      .flatMap(([id, v]) => VISIT_TYPES
+      .flatMap(([id, v]) => visibleVisitTypes
         .filter((type) => v.seenVisitTypes.has(type.id))
-        .map((type) => ({ id, visitType: type.id, visitTypeLabel: type.label, ...v.visitTypes[type.id] })));
+        .map((type) => ({ id, visitType: type.id, visitTypeLabel: reportLabel(type), ...v.visitTypes[type.id] })));
     return {
       totalMale, totalFemale, totalLocal, totalDomestic, totalForeign,
       localMale, localFemale, domesticMale, domesticFemale, foreignMale, foreignFemale,
       overnightTotal, daytourTotal, overnightMale, overnightFemale, daytourMale, daytourFemale,
       grandTotal: totalMale + totalFemale,
-      visitTypeArr: VISIT_TYPES.filter((type) => seenVisitTypes.has(type.id)).map((type) => ({ visitType: type.id, visitTypeLabel: type.label, ...byVisitType[type.id] })),
+      visitTypeArr: visibleVisitTypes
+        .filter((type) => seenVisitTypes.has(type.id))
+        .map((type) => ({ visitType: type.id, visitTypeLabel: reportLabel(type), ...byVisitType[type.id] })),
       byAccArr,
       byAccVisitArr,
       countryArr: Object.entries(byCountry).map(([name, values]) => ({ name, ...values })).sort((a, b) => b.value - a.value).slice(0, 8),
@@ -171,8 +192,12 @@ export default function Overview({ accommodations, initialAccId, dailyArrivals =
           <div className="tas-field" style={{ marginBottom: 0, minWidth: 180 }}>
             <label>Visit type</label>
             <select value={visitTypeFilter} onChange={(e) => setVisitTypeFilter(e.target.value)}>
-              <option value="all">Overnight + Day tour</option>
-              {VISIT_TYPES.map((v) => <option value={v.id} key={v.id}>{v.label}</option>)}
+              <option value="all">All arrivals</option>
+              {VISIT_TYPES.map((v) => (
+                <option value={v.id} key={v.id}>
+                  {v.id === "daytour" ? `${v.label} (includes overnight)` : v.label}
+                </option>
+              ))}
             </select>
           </div>
           <div className="toolbar-actions">
@@ -216,11 +241,16 @@ export default function Overview({ accommodations, initialAccId, dailyArrivals =
       ) : (
         <>
           <div className="stat-row" style={{ marginTop: 16 }}>
-            <StatTile label="Total arrivals" value={agg.grandTotal} male={agg.totalMale} female={agg.totalFemale} />
+            <StatTile
+              label={visitTypeFilter === "daytour" ? "Day tour total (incl. overnight)" : visitTypeFilter === "overnight" ? "Overnight total" : "Total arrivals"}
+              value={agg.grandTotal}
+              male={agg.totalMale}
+              female={agg.totalFemale}
+            />
             {visitTypeFilter === "all" && (
               <>
                 <StatTile label="Overnight" value={agg.overnightTotal} male={agg.overnightMale} female={agg.overnightFemale} />
-                <StatTile label="Day tour" value={agg.daytourTotal} male={agg.daytourMale} female={agg.daytourFemale} />
+                <StatTile label="Day tour (incl. overnight)" value={agg.daytourTotal} male={agg.daytourMale} female={agg.daytourFemale} />
               </>
             )}
             <CategoryStatTile label="This province" total={agg.totalLocal} male={agg.localMale} female={agg.localFemale} tone="sea" />

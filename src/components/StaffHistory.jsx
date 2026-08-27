@@ -3,15 +3,39 @@ import { ClipboardList, Loader2, Pencil } from "lucide-react";
 import { daysAgoStr, todayStr, computeTotals, fmt, VISIT_TYPES, VISIT_TYPE_LABEL } from "../lib/helpers.js";
 import { fetchArrivalsInRange } from "../lib/data.js";
 
+function combineDayTourRecords(records) {
+  const byDate = new Map();
+  for (const record of records) {
+    const combined = byDate.get(record.date) || {
+      ...record,
+      visitType: "daytour",
+      maleLocal: 0,
+      femaleLocal: 0,
+      maleDomestic: 0,
+      femaleDomestic: 0,
+      foreignEntries: [],
+    };
+    combined.maleLocal += +record.maleLocal || 0;
+    combined.femaleLocal += +record.femaleLocal || 0;
+    combined.maleDomestic += +record.maleDomestic || 0;
+    combined.femaleDomestic += +record.femaleDomestic || 0;
+    combined.foreignEntries.push(...(record.foreignEntries || []));
+    byDate.set(record.date, combined);
+  }
+  return [...byDate.values()];
+}
+
 export default function StaffHistory({ accommodation, onEdit }) {
   const [visitType, setVisitType] = useState("overnight");
   const [records, setRecords] = useState(null);
 
   const load = useCallback(() => {
     setRecords(null);
-    fetchArrivalsInRange(daysAgoStr(60), todayStr(), accommodation.id, visitType).then((recs) => {
-      recs.sort((a, b) => (a.date < b.date ? 1 : -1));
-      setRecords(recs);
+    const storedVisitType = visitType === "daytour" ? "all" : "overnight";
+    fetchArrivalsInRange(daysAgoStr(60), todayStr(), accommodation.id, storedVisitType).then((recs) => {
+      const displayedRecords = visitType === "daytour" ? combineDayTourRecords(recs) : recs;
+      displayedRecords.sort((a, b) => (a.date < b.date ? 1 : -1));
+      setRecords(displayedRecords);
     });
   }, [accommodation.id, visitType]);
 
@@ -23,7 +47,7 @@ export default function StaffHistory({ accommodation, onEdit }) {
       <div className="seg-control" style={{ marginBottom: 14 }}>
         {VISIT_TYPES.map((v) => (
           <button key={v.id} className={visitType === v.id ? "active" : ""} onClick={() => setVisitType(v.id)}>
-            {v.label}
+            {v.id === "daytour" ? `${v.label} (includes overnight)` : v.label}
           </button>
         ))}
       </div>

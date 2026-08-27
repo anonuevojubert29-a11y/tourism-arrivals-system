@@ -169,6 +169,7 @@ table.tas-table tr:hover td{ background:#FAFCFB; }
 .banner-rejected{ background:var(--coral-pale); color:var(--coral); }
 .banner-error{ background:var(--coral-pale); color:var(--coral); }
 .banner-success{ background:var(--sea-pale); color:#1F7A4C; }
+.banner-info{ background:#EAF4F5; color:var(--teal-deep); }
 
 .tabbar{ display:flex; gap:6px; margin-bottom:16px; border-bottom:1px solid var(--line); }
 .tabbar button{ background:transparent; border:none; padding:9px 4px; margin-right:14px; font-size:13px; font-weight:600; color:var(--muted); cursor:pointer; border-bottom:2px solid transparent; }
