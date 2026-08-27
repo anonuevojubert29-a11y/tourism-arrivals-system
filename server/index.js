@@ -294,14 +294,14 @@ app.post(
     const passwordHash = await bcrypt.hash(password, 10);
     const id = genId();
     const connection = await pool.getConnection();
+    let token;
     try {
       await connection.beginTransaction();
       await connection.query(
         "INSERT INTO users (id, username, email, password_hash, role, name) VALUES (?, ?, ?, ?, 'admin', ?)",
         [id, cleanUsername, cleanEmail, passwordHash, cleanName]
       );
-      const token = await createActionToken(connection, id, "verify_email", 24 * 60 * 60 * 1000);
-      await sendVerificationEmail(cleanEmail, token);
+      token = await createActionToken(connection, id, "verify_email", 24 * 60 * 60 * 1000);
       await connection.commit();
     } catch (error) {
       await connection.rollback();
@@ -309,9 +309,21 @@ app.post(
     } finally {
       connection.release();
     }
-    res.status(201).json({
+    let verificationSent = true;
+    try {
+      await sendVerificationEmail(cleanEmail, token);
+    } catch (error) {
+      verificationSent = false;
+      console.error("Admin verification email failed:", error);
+    }
+    const user = {
       id, username: cleanUsername, email: cleanEmail, emailVerified: false,
       role: "admin", name: cleanName, accommodationId: null,
+    };
+    res.status(201).json({
+      user,
+      verificationSent,
+      ...(!verificationSent ? { warning: "Account created, but the verification email could not be sent. Use Resend verification after checking the email configuration." } : {}),
     });
   })
 );
@@ -365,30 +377,42 @@ app.patch(
     }
     if (sets.length === 0) return res.status(400).json({ error: "No fields to update" });
     const connection = await pool.getConnection();
+    let verificationToken;
+    let updatedRow;
     try {
       await connection.beginTransaction();
       await connection.query(`UPDATE users SET ${sets.join(", ")} WHERE id = ?`, [...values, id]);
       if (emailChanged) {
-        const token = await createActionToken(connection, id, "verify_email", 24 * 60 * 60 * 1000);
-        await sendVerificationEmail(normalizeEmail(email), token);
+        verificationToken = await createActionToken(connection, id, "verify_email", 24 * 60 * 60 * 1000);
       }
       const [updated] = await connection.query(
         "SELECT id, username, email, email_verified_at, auth_version, role, name, accommodation_id FROM users WHERE id = ?",
         [id]
       );
+      updatedRow = updated[0];
       await connection.commit();
-      const user = mapUser(updated[0]);
-      res.json({
-        user,
-        ...(passwordChanged ? { token: signToken(user, updated[0].auth_version) } : {}),
-        verificationSent: emailChanged,
-      });
     } catch (error) {
       await connection.rollback();
       throw error;
     } finally {
       connection.release();
     }
+    let verificationSent = false;
+    if (emailChanged) {
+      try {
+        await sendVerificationEmail(normalizeEmail(email), verificationToken);
+        verificationSent = true;
+      } catch (error) {
+        console.error("Account verification email failed:", error);
+      }
+    }
+    const user = mapUser(updatedRow);
+    res.json({
+      user,
+      ...(passwordChanged ? { token: signToken(user, updatedRow.auth_version) } : {}),
+      verificationSent,
+      ...(emailChanged && !verificationSent ? { warning: "Email saved, but the verification message could not be sent. Check the email configuration, then use Resend verification." } : {}),
+    });
   })
 );
 
@@ -443,6 +467,7 @@ app.post(
     const passwordHash = await bcrypt.hash(password, 10);
 
     const connection = await pool.getConnection();
+    let verificationToken;
     try {
       await connection.beginTransaction();
       await connection.query(
@@ -454,8 +479,7 @@ app.post(
         "INSERT INTO users (id, username, email, password_hash, role, name, accommodation_id) VALUES (?, ?, ?, ?, 'staff', ?, ?)",
         [userId, cleanUsername, cleanEmail, passwordHash, contactPerson || cleanAccName, accId]
       );
-      const token = await createActionToken(connection, userId, "verify_email", 24 * 60 * 60 * 1000);
-      await sendVerificationEmail(cleanEmail, token);
+      verificationToken = await createActionToken(connection, userId, "verify_email", 24 * 60 * 60 * 1000);
       await connection.commit();
     } catch (error) {
       await connection.rollback();
@@ -464,10 +488,21 @@ app.post(
       connection.release();
     }
 
+    let verificationSent = true;
+    try {
+      await sendVerificationEmail(cleanEmail, verificationToken);
+    } catch (error) {
+      verificationSent = false;
+      console.error("Registration verification email failed:", error);
+    }
+
     res.status(201).json({
       verificationRequired: true,
+      verificationSent,
       email: cleanEmail,
-      message: "Registration submitted. Check your email to verify the account before signing in.",
+      message: verificationSent
+        ? "Registration submitted. Check your email to verify the account before signing in."
+        : "Registration submitted, but the verification email could not be sent. Use Resend verification after the email service is configured.",
     });
   })
 );
@@ -521,10 +556,10 @@ app.post(
     );
     if (users.length > 0 && !users[0].email_verified_at) {
       const connection = await pool.getConnection();
+      let token;
       try {
         await connection.beginTransaction();
-        const token = await createActionToken(connection, users[0].id, "verify_email", 24 * 60 * 60 * 1000);
-        await sendVerificationEmail(email, token);
+        token = await createActionToken(connection, users[0].id, "verify_email", 24 * 60 * 60 * 1000);
         await connection.commit();
       } catch (error) {
         await connection.rollback();
@@ -532,6 +567,7 @@ app.post(
       } finally {
         connection.release();
       }
+      await sendVerificationEmail(email, token);
     }
     res.json({ message: "If that address belongs to an unverified account, a new verification link has been sent." });
   })
@@ -550,10 +586,10 @@ app.post(
     );
     if (users.length > 0) {
       const connection = await pool.getConnection();
+      let token;
       try {
         await connection.beginTransaction();
-        const token = await createActionToken(connection, users[0].id, "reset_password", 60 * 60 * 1000);
-        await sendPasswordResetEmail(email, token);
+        token = await createActionToken(connection, users[0].id, "reset_password", 60 * 60 * 1000);
         await connection.commit();
       } catch (error) {
         await connection.rollback();
@@ -561,6 +597,7 @@ app.post(
       } finally {
         connection.release();
       }
+      await sendPasswordResetEmail(email, token);
     }
     res.json({ message: "If a verified account uses that address, a password-reset link has been sent." });
   })
@@ -774,7 +811,7 @@ app.use((err, req, res, next) => {
   if (err.code === "ER_DUP_ENTRY") {
     return res.status(409).json({ error: "That username or email address is already registered." });
   }
-  if (["EAUTH", "ECONNECTION", "ETIMEDOUT", "ESOCKET", "EENVELOPE", "EMESSAGE"].includes(err.code)) {
+  if (["EAUTH", "ECONNECTION", "ETIMEDOUT", "ESOCKET", "EENVELOPE", "EMESSAGE", "EMAIL_API_ERROR"].includes(err.code)) {
     return res.status(502).json({ error: "The email could not be sent. Please try again later." });
   }
   res.status(500).json({ error: "Internal server error" });

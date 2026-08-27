@@ -3,14 +3,12 @@ import nodemailer from "nodemailer";
 let transporter;
 
 export function isMailConfigured() {
-  return Boolean(
-    process.env.APP_URL
-    && process.env.SMTP_HOST
-    && process.env.SMTP_PORT
-    && process.env.SMTP_USER
-    && process.env.SMTP_PASSWORD
-    && process.env.EMAIL_FROM
+  const hasApiProvider = Boolean(process.env.BREVO_API_KEY);
+  const hasSmtpProvider = Boolean(
+    process.env.SMTP_HOST && process.env.SMTP_PORT
+    && process.env.SMTP_USER && process.env.SMTP_PASSWORD
   );
+  return Boolean(process.env.APP_URL && process.env.EMAIL_FROM && (hasApiProvider || hasSmtpProvider));
 }
 
 function getTransporter() {
@@ -34,8 +32,53 @@ function getTransporter() {
   return transporter;
 }
 
+function parseSender(value) {
+  const match = String(value).match(/^\s*(.*?)\s*<([^>]+)>\s*$/);
+  if (match) return { name: match[1].replace(/^['"]|['"]$/g, "").trim(), email: match[2].trim() };
+  return { name: "Tourism Arrivals System", email: String(value).trim() };
+}
+
+async function sendWithBrevo(message) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+  try {
+    const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "api-key": process.env.BREVO_API_KEY,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        sender: parseSender(process.env.EMAIL_FROM),
+        to: [{ email: message.to }],
+        subject: message.subject,
+        textContent: message.text,
+        htmlContent: message.html,
+      }),
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      const error = new Error(body.message || `Email API request failed (${response.status}).`);
+      error.code = "EMAIL_API_ERROR";
+      throw error;
+    }
+  } catch (error) {
+    if (error.name === "AbortError") {
+      const timeoutError = new Error("Email API request timed out.");
+      timeoutError.code = "EMAIL_API_ERROR";
+      throw timeoutError;
+    }
+    if (!error.code) error.code = "EMAIL_API_ERROR";
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function sendActionEmail({ to, subject, heading, message, actionLabel, actionUrl, expiresText }) {
-  await getTransporter().sendMail({
+  const mail = {
     from: process.env.EMAIL_FROM,
     to,
     subject,
@@ -51,7 +94,9 @@ async function sendActionEmail({ to, subject, heading, message, actionLabel, act
         <p style="font-size:13px;color:#5d6f70">If you did not request this, you can ignore this email.</p>
       </div>
     `,
-  });
+  };
+  if (process.env.BREVO_API_KEY) return sendWithBrevo(mail);
+  return getTransporter().sendMail(mail);
 }
 
 export function sendVerificationEmail(email, token) {

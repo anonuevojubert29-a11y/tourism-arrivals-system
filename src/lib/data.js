@@ -218,8 +218,8 @@ export async function updateAccommodation(id, patch) {
 export async function createAdmin({ name, username, email, password }) {
   if (hasApi) {
     try {
-      const user = await apiFetch("/api/users", { method: "POST", body: JSON.stringify({ name, username, email, password }) });
-      return { ok: true, user };
+      const result = await apiFetch("/api/users", { method: "POST", body: JSON.stringify({ name, username, email, password }) });
+      return { ok: true, user: result.user, verificationSent: result.verificationSent, warning: result.warning };
     } catch (e) {
       return { ok: false, error: e.message };
     }
@@ -230,7 +230,7 @@ export async function createAdmin({ name, username, email, password }) {
   }
   const user = { id: uid(), name, username, email, emailVerified: true, password, role: "admin" };
   const ok = await kvSetJSON("users", [...users, user]);
-  return ok ? { ok: true, user } : { ok: false, error: "Could not save account." };
+  return ok ? { ok: true, user, verificationSent: true } : { ok: false, error: "Could not save account." };
 }
 
 export async function updateUserAccount(userId, { name, email, currentPassword, newPassword } = {}) {
@@ -241,7 +241,7 @@ export async function updateUserAccount(userId, { name, email, currentPassword, 
         body: JSON.stringify({ name, email, currentPassword, newPassword }),
       });
       if (result.token) setApiToken(result.token);
-      return { ok: true, user: result.user, verificationSent: result.verificationSent };
+      return { ok: true, user: result.user, verificationSent: result.verificationSent, warning: result.warning };
     } catch (e) {
       return { ok: false, error: e.message };
     }
@@ -261,7 +261,7 @@ export async function updateUserAccount(userId, { name, email, currentPassword, 
     ...(newPassword ? { password: newPassword } : {}),
   };
   const ok = await kvSetJSON("users", users.map((u) => (u.id === userId ? updated : u)));
-  return ok ? { ok: true, user: updated } : { ok: false, error: "Could not save changes." };
+  return ok ? { ok: true, user: updated, verificationSent: Boolean(email) } : { ok: false, error: "Could not save changes." };
 }
 
 export async function verifyEmail(token) {

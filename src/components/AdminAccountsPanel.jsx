@@ -19,7 +19,7 @@ export default function AdminAccountsPanel({ users, setUsers, notify }) {
     const result = await createAdmin({ name: form.name.trim(), username: form.username.trim(), email: form.email.trim(), password: form.password });
     if (result.ok) {
       setUsers([...users, result.user]);
-      notify("success", "Admin created. A verification email was sent.");
+      notify(result.verificationSent ? "success" : "error", result.verificationSent ? "Admin created. A verification email was sent." : result.warning);
       setForm({ name: "", username: "", email: "", password: "" });
     } else {
       notify("error", result.error || "Could not save account.");

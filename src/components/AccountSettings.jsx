@@ -59,10 +59,10 @@ export default function AccountSettings({ user, accommodation, onUpdateAccount, 
     const result = await onUpdateAccount({ email: email.trim(), currentPassword: emailPassword });
     setSavingEmail(false);
     if (result.ok) setEmailPassword("");
-    notify(
-      result.ok ? "success" : "error",
-      result.ok ? "Verification email sent. Open it before your next sign-in." : (result.error || "Could not update email.")
-    );
+    const message = result.ok
+      ? (result.verificationSent ? "Verification email sent. Open it before your next sign-in." : result.warning)
+      : (result.error || "Could not update email.");
+    notify(result.ok && result.verificationSent ? "success" : "error", message);
   }
 
   async function handleResend() {

@@ -99,13 +99,16 @@ SMTP_SECURE=false
 SMTP_USER=your-smtp-user
 SMTP_PASSWORD=your-smtp-password
 EMAIL_FROM=Tourism Arrivals System <no-reply@example.com>
+BREVO_API_KEY=your-brevo-api-key
 ```
 
-Use `SMTP_SECURE=true` for implicit TLS on port 465; use `false` for port 587
-so the connection can upgrade with STARTTLS. Verification links expire after
-24 hours. Password-reset links require a verified address, expire after one
-hour, and can only be used once. Existing accounts created before this feature
-can add and verify an address under **My account**.
+`BREVO_API_KEY` uses Brevo's HTTPS email API and takes priority over the SMTP
+settings. This is required on Railway Free, Trial, and Hobby plans, which block
+outbound SMTP. SMTP remains available for local development or Railway Pro:
+use `SMTP_SECURE=true` for implicit TLS on port 465, or `false` for STARTTLS on
+port 587. Verification links expire after 24 hours. Password-reset links
+require a verified address, expire after one hour, and can only be used once.
+Existing accounts can add and verify an address under **My account**.
 
 ### MySQL schema
 
