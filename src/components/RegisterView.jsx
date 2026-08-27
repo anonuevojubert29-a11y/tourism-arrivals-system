@@ -1,6 +1,5 @@
 import React, { useState } from "react";
-import { UserPlus, XCircle } from "lucide-react";
-import Banner from "./Banner.jsx";
+import { UserPlus } from "lucide-react";
 
 export default function RegisterView({ onRegister, onSwitch, error }) {
   const [form, setForm] = useState({
@@ -19,7 +18,6 @@ export default function RegisterView({ onRegister, onSwitch, error }) {
           Create your establishment's account. You must verify your email, then a system
           administrator will review the accommodation before you can submit arrivals.
         </p>
-        {error && <Banner type="error" icon={XCircle}>{error}</Banner>}
         <form onSubmit={(e) => { e.preventDefault(); onRegister(form); }}>
           <div className="tas-field"><label>Accommodation name</label><input value={form.accName} onChange={set("accName")} required /></div>
           <div className="tas-grid2">

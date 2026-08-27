@@ -87,6 +87,18 @@ async function apiFetch(path, options = {}) {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), API_TIMEOUT_MS);
   const token = getApiToken();
+  const method = (options.method || "GET").toUpperCase();
+  const loadingLabel = path === "/api/auth/login"
+    ? "Signing in…"
+    : path.includes("forgot-password") || path.includes("resend-verification")
+      ? "Sending email…"
+      : path.includes("verify-email")
+        ? "Verifying email…"
+        : path.includes("reset-password")
+          ? "Updating password…"
+          : method === "GET" ? "Loading information…" : "Saving changes…";
+
+  window.dispatchEvent(new CustomEvent("tas:loading-start", { detail: { label: loadingLabel } }));
 
   try {
     const res = await fetch(`${API_BASE}${path}`, {
@@ -122,6 +134,7 @@ async function apiFetch(path, options = {}) {
     throw error;
   } finally {
     window.clearTimeout(timeout);
+    window.dispatchEvent(new Event("tas:loading-end"));
   }
 }
 

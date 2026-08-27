@@ -1,6 +1,6 @@
 import React, { useState } from "react";
-import { CheckCircle2, KeyRound, Mail, Send, XCircle } from "lucide-react";
-import Banner from "./Banner.jsx";
+import { KeyRound, Mail, Send } from "lucide-react";
+import FeedbackDialog from "./FeedbackDialog.jsx";
 
 function AuthShell({ title, subtitle, children, onBack }) {
   return (
@@ -48,8 +48,7 @@ export function EmailRequestView({ mode, onSubmit, onBack }) {
         : "Enter the email address used when the account was registered."}
       onBack={onBack}
     >
-      {message && <Banner type="success" icon={CheckCircle2}>{message}</Banner>}
-      {error && <Banner type="error" icon={XCircle}>{error}</Banner>}
+      <FeedbackDialog type={error ? "error" : "success"} message={error || message} onClose={() => { setError(""); setMessage(""); }} />
       <form onSubmit={submit}>
         <div className="tas-field">
           <label>Email address</label>
@@ -83,8 +82,7 @@ export function VerifyEmailView({ token, onVerify, onBack }) {
 
   return (
     <AuthShell title="Verify your email" subtitle="Confirm this email address to activate your account." onBack={onBack}>
-      {message && <Banner type="success" icon={CheckCircle2}>{message}</Banner>}
-      {error && <Banner type="error" icon={XCircle}>{error}</Banner>}
+      <FeedbackDialog type={error ? "error" : "success"} message={error || message} onClose={() => { setError(""); setMessage(""); }} />
       {!message && (
         <button type="button" className="btn btn-primary btn-block auth-submit" onClick={verify} disabled={busy || !token}>
           <Mail size={15} /> {busy ? "Verifyingâ€¦" : "Verify email"}
@@ -121,8 +119,7 @@ export function ResetPasswordView({ token, onReset, onBack }) {
 
   return (
     <AuthShell title="Set a new password" subtitle="Choose a new password with at least 8 characters." onBack={onBack}>
-      {message && <Banner type="success" icon={CheckCircle2}>{message}</Banner>}
-      {error && <Banner type="error" icon={XCircle}>{error}</Banner>}
+      <FeedbackDialog type={error ? "error" : "success"} message={error || message} onClose={() => { setError(""); setMessage(""); }} />
       {!message && (
         <form onSubmit={submit}>
           <div className="tas-field"><label>New password</label><input type="password" minLength={8} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} required autoFocus /></div>

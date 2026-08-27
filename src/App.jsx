@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useCallback } from "react";
-import { Loader2, XCircle, CheckCircle2, RefreshCw, ServerOff } from "lucide-react";
-import Banner from "./components/Banner.jsx";
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import { RefreshCw, ServerOff } from "lucide-react";
+import FeedbackDialog from "./components/FeedbackDialog.jsx";
+import LoadingOverlay from "./components/LoadingOverlay.jsx";
 import LoginView from "./components/LoginView.jsx";
 import RegisterView from "./components/RegisterView.jsx";
 import { EmailRequestView, ResetPasswordView, VerifyEmailView } from "./components/EmailAuthViews.jsx";
@@ -41,6 +42,31 @@ export default function App() {
   const [message, setMessage] = useState(null);
   const [initialError, setInitialError] = useState("");
   const [loadAttempt, setLoadAttempt] = useState(0);
+  const [requestBusy, setRequestBusy] = useState(false);
+  const [loadingLabel, setLoadingLabel] = useState("Loading information…");
+  const [pageLoading, setPageLoading] = useState(false);
+  const requestCount = useRef(0);
+  const navigationTimer = useRef(null);
+
+  useEffect(() => {
+    const startLoading = (event) => {
+      requestCount.current += 1;
+      setLoadingLabel(event.detail?.label || "Loading information…");
+      setRequestBusy(true);
+    };
+    const stopLoading = () => {
+      requestCount.current = Math.max(0, requestCount.current - 1);
+      if (requestCount.current === 0) setRequestBusy(false);
+    };
+    window.addEventListener("tas:loading-start", startLoading);
+    window.addEventListener("tas:loading-end", stopLoading);
+    return () => {
+      window.removeEventListener("tas:loading-start", startLoading);
+      window.removeEventListener("tas:loading-end", stopLoading);
+    };
+  }, []);
+
+  useEffect(() => () => window.clearTimeout(navigationTimer.current), []);
 
   useEffect(() => {
     let active = true;
@@ -98,9 +124,22 @@ export default function App() {
   }, [loadAttempt, emailLink]);
 
   const notify = useCallback((type, text) => {
-    setMessage({ type, text });
-    setTimeout(() => setMessage(null), 3500);
+    setMessage({ id: Date.now(), type, text });
   }, []);
+
+  const dismissMessage = useCallback(() => setMessage(null), []);
+  const dismissAuthFeedback = useCallback(() => {
+    setAuthError("");
+    setAuthNotice("");
+  }, []);
+
+  const navigateTo = useCallback((tab, force = false) => {
+    if (!force && tab === mainTab) return;
+    window.clearTimeout(navigationTimer.current);
+    setPageLoading(true);
+    setMainTab(tab);
+    navigationTimer.current = window.setTimeout(() => setPageLoading(false), 450);
+  }, [mainTab]);
 
   useEffect(() => {
     const handleUnauthorized = () => {
@@ -204,9 +243,12 @@ export default function App() {
   }
 
   function showAuthMode(mode) {
+    window.clearTimeout(navigationTimer.current);
+    setPageLoading(true);
     setAuthMode(mode);
     setAuthError("");
     setAuthNotice("");
+    navigationTimer.current = window.setTimeout(() => setPageLoading(false), 450);
   }
 
   function returnToLogin() {
@@ -215,6 +257,8 @@ export default function App() {
   }
 
   function handleLogout() {
+    window.clearTimeout(navigationTimer.current);
+    setPageLoading(true);
     logoutUser();
     window.localStorage.removeItem(SESSION_KEY);
     setCurrentUser(null);
@@ -225,6 +269,7 @@ export default function App() {
     setAuthMode("login");
     setAuthError("");
     setAuthNotice("");
+    navigationTimer.current = window.setTimeout(() => setPageLoading(false), 450);
   }
 
   if (initialError) {
@@ -248,7 +293,7 @@ export default function App() {
   if (users === null || accommodations === null) {
     return (
       <div className="tas-root">
-        <div className="auth-wrap"><Loader2 size={22} className="spin" /></div>
+        <LoadingOverlay visible label="Loading the system…" />
       </div>
     );
   }
@@ -284,6 +329,12 @@ export default function App() {
     return (
       <div className="tas-root">
         {authView}
+        <FeedbackDialog
+          type={authError ? "error" : "success"}
+          message={authError || authNotice}
+          onClose={dismissAuthFeedback}
+        />
+        <LoadingOverlay visible={pageLoading || requestBusy} label={requestBusy ? loadingLabel : "Loading page…"} />
       </div>
     );
   }
@@ -297,17 +348,21 @@ export default function App() {
       <Sidebar
         user={currentUser}
         mainTab={mainTab}
-        setMainTab={setMainTab}
+        setMainTab={navigateTo}
         onLogout={handleLogout}
-        onOpenAccount={() => setMainTab("account")}
+        onOpenAccount={() => navigateTo("account")}
         staffApproved={staffAccommodation?.status === "approved"}
       />
       <div className="tas-main">
         {message && (
-          <Banner type={message.type === "error" ? "error" : "success"} icon={message.type === "error" ? XCircle : CheckCircle2}>
-            {message.text}
-          </Banner>
+          <FeedbackDialog
+            key={message.id}
+            type={message.type === "error" ? "error" : "success"}
+            message={message.text}
+            onClose={dismissMessage}
+          />
         )}
+        <LoadingOverlay visible={pageLoading || requestBusy} label={requestBusy ? loadingLabel : "Loading page…"} />
 
         {mainTab === "account" && (
           <AccountSettings
@@ -323,7 +378,7 @@ export default function App() {
           <StaffApp
             accommodation={staffAccommodation}
             tab={mainTab}
-            onNavigate={setMainTab}
+            onNavigate={navigateTo}
             notify={notify}
             onUpdateBookingStatus={(v) => handleSetBookingStatus(staffAccommodation.id, v)}
             onUpdateInfo={(patch) => handleUpdateAccommodationInfo(staffAccommodation.id, patch)}
@@ -352,7 +407,7 @@ export default function App() {
                 setUsers={setUsers}
                 canManage={currentUser.role === "superadmin"}
                 notify={notify}
-                onViewDetails={(id) => { setOverviewFilterAccId(id); setMainTab("overview"); }}
+                onViewDetails={(id) => { setOverviewFilterAccId(id); navigateTo("overview", true); }}
               />
             )}
             {mainTab === "admins" && currentUser.role === "superadmin" && (

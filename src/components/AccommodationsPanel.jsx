@@ -1,10 +1,12 @@
 import React, { useState } from "react";
 import { Building2, CheckCircle2, XCircle, ChevronRight, Trash2 } from "lucide-react";
 import StatusBadge from "./StatusBadge.jsx";
+import ConfirmDialog from "./ConfirmDialog.jsx";
 import { deleteAccommodationAccount, updateAccommodation } from "../lib/data.js";
 
 export default function AccommodationsPanel({ accommodations, setAccommodations, setUsers, canManage, onViewDetails, notify }) {
   const [removingId, setRemovingId] = useState(null);
+  const [confirmAccommodation, setConfirmAccommodation] = useState(null);
 
   async function setStatus(id, status) {
     const ok = await updateAccommodation(id, { status });
@@ -13,13 +15,10 @@ export default function AccommodationsPanel({ accommodations, setAccommodations,
   }
 
   async function removeAccount(accommodation) {
-    const confirmed = window.confirm(
-      `Permanently remove ${accommodation.name}? This deletes its staff account and all recorded arrival data. This cannot be undone.`
-    );
-    if (!confirmed) return;
     setRemovingId(accommodation.id);
     const result = await deleteAccommodationAccount(accommodation.id);
     setRemovingId(null);
+    setConfirmAccommodation(null);
     if (result.ok) {
       setAccommodations(accommodations.filter((item) => item.id !== accommodation.id));
       setUsers((current) => current.filter((user) => user.accommodationId !== accommodation.id));
@@ -28,6 +27,7 @@ export default function AccommodationsPanel({ accommodations, setAccommodations,
   }
 
   return (
+    <>
     <div className="tas-card">
       <div className="tas-cardhead"><Building2 size={15} /> Registered accommodations ({accommodations.length})</div>
       {accommodations.length === 0 ? (
@@ -73,7 +73,7 @@ export default function AccommodationsPanel({ accommodations, setAccommodations,
                         <button className="btn btn-outline btn-sm" onClick={() => setStatus(a.id, "pending")}>Reinstate</button>
                       )}
                       {canManage && (
-                        <button className="btn btn-danger btn-sm" onClick={() => removeAccount(a)} disabled={removingId === a.id}>
+                        <button className="btn btn-danger btn-sm" onClick={() => setConfirmAccommodation(a)} disabled={removingId === a.id}>
                           <Trash2 size={13} /> {removingId === a.id ? "Removing…" : "Remove account"}
                         </button>
                       )}
@@ -86,5 +86,15 @@ export default function AccommodationsPanel({ accommodations, setAccommodations,
         </div>
       )}
     </div>
+    <ConfirmDialog
+      open={!!confirmAccommodation}
+      title="Remove accommodation account?"
+      message={confirmAccommodation ? `This will permanently delete ${confirmAccommodation.name}, its staff account, and all recorded arrival data. This action cannot be undone.` : ""}
+      confirmLabel="Remove permanently"
+      busy={!!confirmAccommodation && removingId === confirmAccommodation.id}
+      onCancel={() => setConfirmAccommodation(null)}
+      onConfirm={() => confirmAccommodation && removeAccount(confirmAccommodation)}
+    />
+    </>
   );
 }

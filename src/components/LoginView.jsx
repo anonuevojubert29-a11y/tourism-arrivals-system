@@ -1,6 +1,5 @@
 import React, { useState } from "react";
-import { CheckCircle2, LogIn, XCircle } from "lucide-react";
-import Banner from "./Banner.jsx";
+import { LogIn } from "lucide-react";
 
 export default function LoginView({ onLogin, onSwitch, onForgotPassword, onResendVerification, error, notice }) {
   const [username, setUsername] = useState("");
@@ -13,8 +12,6 @@ export default function LoginView({ onLogin, onSwitch, onForgotPassword, onResen
           <h2 className="tas-display">Tourism Casiguran Arrivals System</h2>
         </div>
         <p className="auth-sub">Tourism arrivals monitoring system — sign in to continue.</p>
-        {notice && <Banner type="success" icon={CheckCircle2}>{notice}</Banner>}
-        {error && <Banner type="error" icon={XCircle}>{error}</Banner>}
         <form onSubmit={(e) => { e.preventDefault(); onLogin(username.trim(), password); }}>
           <div className="tas-field">
             <label>Username</label>

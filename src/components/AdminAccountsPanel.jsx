@@ -1,10 +1,12 @@
 import React, { useState } from "react";
 import { Trash2, UserPlus, ShieldCheck } from "lucide-react";
+import ConfirmDialog from "./ConfirmDialog.jsx";
 import { createAdmin, deleteUserAccount } from "../lib/data.js";
 
 export default function AdminAccountsPanel({ users, setUsers, currentUserId, notify }) {
   const [form, setForm] = useState({ name: "", username: "", email: "", password: "" });
   const [removingId, setRemovingId] = useState(null);
+  const [confirmAdmin, setConfirmAdmin] = useState(null);
   const admins = users.filter((u) => u.role === "admin" || u.role === "superadmin");
 
   async function handleCreateAdmin(e) {
@@ -28,15 +30,16 @@ export default function AdminAccountsPanel({ users, setUsers, currentUserId, not
   }
 
   async function handleRemoveAdmin(user) {
-    if (!window.confirm(`Permanently remove the admin account “${user.username}”? This cannot be undone.`)) return;
     setRemovingId(user.id);
     const result = await deleteUserAccount(user.id);
     setRemovingId(null);
+    setConfirmAdmin(null);
     if (result.ok) setUsers(users.filter((item) => item.id !== user.id));
     notify(result.ok ? "success" : "error", result.ok ? "Admin account permanently removed." : (result.error || "Could not remove account."));
   }
 
   return (
+    <>
     <div className="tas-grid2">
       <div className="tas-card">
         <div className="tas-cardhead"><UserPlus size={15} /> Create admin account</div>
@@ -62,7 +65,7 @@ export default function AdminAccountsPanel({ users, setUsers, currentUserId, not
                   <td><span className="badge badge-role">{u.role}</span></td>
                   <td>
                     {u.role === "admin" && u.id !== currentUserId && (
-                      <button className="btn btn-danger btn-sm" type="button" onClick={() => handleRemoveAdmin(u)} disabled={removingId === u.id}>
+                      <button className="btn btn-danger btn-sm" type="button" onClick={() => setConfirmAdmin(u)} disabled={removingId === u.id}>
                         <Trash2 size={13} /> {removingId === u.id ? "Removing…" : "Remove"}
                       </button>
                     )}
@@ -74,5 +77,15 @@ export default function AdminAccountsPanel({ users, setUsers, currentUserId, not
         </div>
       </div>
     </div>
+    <ConfirmDialog
+      open={!!confirmAdmin}
+      title="Remove administrator?"
+      message={confirmAdmin ? `The administrator account “${confirmAdmin.username}” will be permanently removed. This action cannot be undone.` : ""}
+      confirmLabel="Remove permanently"
+      busy={!!confirmAdmin && removingId === confirmAdmin.id}
+      onCancel={() => setConfirmAdmin(null)}
+      onConfirm={() => confirmAdmin && handleRemoveAdmin(confirmAdmin)}
+    />
+    </>
   );
 }
