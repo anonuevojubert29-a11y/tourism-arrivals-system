@@ -487,7 +487,34 @@ export async function saveArrival(accommodationId, visitType, date, record) {
       return false;
     }
   }
-  return kvSetJSON(`arrival:${accommodationId}:${visitType}:${date}`, record);
+  const key = `arrival:${accommodationId}:${visitType}:${date}`;
+  const existing = await kvGetJSON(key, null);
+  const saved = await kvSetJSON(key, record);
+  if (!saved) return false;
+
+  const [accommodations, users] = await Promise.all([
+    kvGetJSON("accommodations", []),
+    kvGetJSON("users", []),
+  ]);
+  const accommodation = accommodations.find((item) => item.id === accommodationId);
+  const foreignTotal = (record.foreignEntries || []).reduce(
+    (sum, entry) => sum + Number(entry.male || 0) + Number(entry.female || 0),
+    0
+  );
+  const total = Number(record.maleLocal || 0) + Number(record.femaleLocal || 0)
+    + Number(record.maleDomestic || 0) + Number(record.femaleDomestic || 0) + foreignTotal;
+  const visitLabel = visitType === "daytour" ? "day tour" : "overnight";
+  const action = existing ? "updated" : "submitted";
+  await appendLocalNotifications(users
+    .filter((user) => user.role === "admin" || user.role === "superadmin")
+    .map((user) => makeNotification(
+      user.id,
+      "arrival",
+      existing ? "Arrival report updated" : "New arrival report",
+      `${accommodation?.name || "An accommodation"} ${action} its ${visitLabel} arrivals for ${date}: ${total} visitor${total === 1 ? "" : "s"}.`,
+      "overview"
+    )));
+  return true;
 }
 
 export async function fetchArrivalsInRange(from, to, accommodationIdFilter, visitTypeFilter) {

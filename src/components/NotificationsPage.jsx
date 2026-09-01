@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import {
-  Bell, Building2, Check, CheckCheck, CircleAlert, Info, Trash2,
+  Bell, Building2, Check, CheckCheck, CircleAlert, ClipboardCheck, Info, Trash2,
 } from "lucide-react";
 import ConfirmDialog from "./ConfirmDialog.jsx";
 
@@ -8,6 +8,7 @@ const ICONS = {
   registration: Building2,
   status: CircleAlert,
   booking: Bell,
+  arrival: ClipboardCheck,
   info: Info,
 };
 

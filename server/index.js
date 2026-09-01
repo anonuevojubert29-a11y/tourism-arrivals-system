@@ -968,7 +968,7 @@ app.put(
     if (!isValidVisitType(visitType)) return res.status(400).json({ error: "Invalid visit type" });
 
     const [accommodationRows] = await pool.query(
-      "SELECT status FROM accommodations WHERE id = ?",
+      "SELECT name, status FROM accommodations WHERE id = ?",
       [accommodationId]
     );
     if (accommodationRows.length === 0) return res.status(404).json({ error: "Accommodation not found." });
@@ -1012,6 +1012,22 @@ app.put(
           [arrivalId, entry.country, entry.male || 0, entry.female || 0]
         );
       }
+
+      const foreignTotal = foreignEntries.reduce(
+        (sum, entry) => sum + Number(entry.male || 0) + Number(entry.female || 0),
+        0
+      );
+      const total = Number(maleLocal) + Number(femaleLocal) + Number(maleDomestic) + Number(femaleDomestic) + foreignTotal;
+      const visitLabel = visitType === "daytour" ? "day tour" : "overnight";
+      const action = existing.length > 0 ? "updated" : "submitted";
+      await notifyRoles(
+        conn,
+        ["admin", "superadmin"],
+        "arrival",
+        existing.length > 0 ? "Arrival report updated" : "New arrival report",
+        `${accommodationRows[0].name} ${action} its ${visitLabel} arrivals for ${date}: ${total} visitor${total === 1 ? "" : "s"}.`,
+        "overview"
+      );
 
       await conn.commit();
       res.json({ ok: true });

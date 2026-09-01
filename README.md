@@ -22,8 +22,9 @@ of origin), rolled up into an admin dashboard, and printable as a report.
   verification status.
 - **All signed-in users** — a persistent notification inbox with unread
   counts, read/unread filtering, direct links to related pages, individual
-  deletion, and clear-all controls. Registration and approval changes are
-  delivered to the relevant accounts automatically.
+  deletion, and clear-all controls. Registration, approval, availability,
+  and submitted-arrivals changes are delivered to the relevant accounts
+  automatically.
 
 ## Quick start (no database required)
 

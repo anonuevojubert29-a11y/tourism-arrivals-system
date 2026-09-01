@@ -308,6 +308,7 @@ table.tas-table tr:hover td{ background:#FAFCFB; }
 }
 .notification-icon.type-status{ color:#A9721B; background:var(--gold-pale); }
 .notification-icon.type-booking{ color:#1F7A4C; background:var(--sea-pale); }
+.notification-icon.type-arrival{ color:#255F85; background:#E4EFF6; }
 .notification-content{ min-width:0; }
 .notification-title-row{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
 .notification-title-row h2{ margin:0; font:700 14px/1.35 'Space Grotesk',sans-serif; }
