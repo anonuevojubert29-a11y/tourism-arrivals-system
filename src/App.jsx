@@ -342,7 +342,7 @@ export default function App() {
         mainTab={mainTab}
         setMainTab={navigateTo}
         onLogout={handleLogout}
-        onOpenAccount={() => navigateTo("account")}
+        onOpenAccount={() => navigateTo("settings")}
         staffApproved={staffAccommodation?.status === "approved"}
       />
       <div className="tas-main">
@@ -356,7 +356,7 @@ export default function App() {
         )}
         <LoadingOverlay visible={pageLoading || requestBusy} label={requestBusy ? loadingLabel : "Loading page…"} />
 
-        {(mainTab === "account" || mainTab === "settings") && (
+        {mainTab === "settings" && (
           <AccountSettings
             user={currentUser}
             accommodation={staffAccommodation}
@@ -366,7 +366,7 @@ export default function App() {
           />
         )}
 
-        {mainTab !== "account" && mainTab !== "settings" && mainTab !== "settings" && currentUser.role === "staff" && staffAccommodation && (
+        {mainTab !== "settings" && currentUser.role === "staff" && staffAccommodation && (
           <StaffApp
             accommodation={staffAccommodation}
             tab={mainTab}
@@ -378,7 +378,7 @@ export default function App() {
           />
         )}
 
-        {mainTab !== "account" && mainTab !== "settings" && (currentUser.role === "admin" || currentUser.role === "superadmin") && (
+        {mainTab !== "settings" && (currentUser.role === "admin" || currentUser.role === "superadmin") && (
           <>
             <div className="tas-pagehead">
               <div>

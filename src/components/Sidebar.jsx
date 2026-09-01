@@ -92,7 +92,7 @@ export default function Sidebar({ user, mainTab, setMainTab, onLogout, onOpenAcc
         </nav>
         <div className="tas-sidefoot">
           <button
-            className={`tas-userchip ${mainTab === "account" || mainTab === "settings" ? "active" : ""}`}
+            className={`tas-userchip ${mainTab === "settings" ? "active" : ""}`}
             onClick={() => { onOpenAccount(); setMobileOpen(false); }}
           >
             <b>{user.name || user.username}</b>{roleLabel}
