@@ -140,6 +140,16 @@ function mapUser(row) {
   };
 }
 
+function mysqlUtcToIso(value) {
+  if (!value) return null;
+  if (value instanceof Date) return value.toISOString();
+  const text = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(text)) {
+    return `${text.replace(" ", "T")}Z`;
+  }
+  return text;
+}
+
 function mapNotification(row) {
   return {
     id: row.id,
@@ -149,7 +159,7 @@ function mapNotification(row) {
     message: row.message,
     actionTab: row.action_tab || null,
     read: Boolean(row.is_read),
-    createdAt: row.created_at,
+    createdAt: mysqlUtcToIso(row.created_at),
   };
 }
 
