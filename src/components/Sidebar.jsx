@@ -8,12 +8,14 @@ const NAV = {
   admin: [
     { id: "overview", label: "Overview", icon: BarChart3 },
     { id: "accommodations", label: "Accommodations", icon: Building2 },
+    { id: "settings", label: "Settings", icon: SettingsIcon },
   ],
   superadmin: [
     { id: "overview", label: "Overview", icon: BarChart3 },
     { id: "accommodations", label: "Accommodations", icon: Building2 },
     { id: "admins", label: "Admin accounts", icon: Users },
     { id: "data", label: "Data", icon: Database },
+    { id: "settings", label: "Settings", icon: SettingsIcon },
   ],
 };
 
@@ -90,7 +92,7 @@ export default function Sidebar({ user, mainTab, setMainTab, onLogout, onOpenAcc
         </nav>
         <div className="tas-sidefoot">
           <button
-            className={`tas-userchip ${mainTab === "account" ? "active" : ""}`}
+            className={`tas-userchip ${mainTab === "account" || mainTab === "settings" ? "active" : ""}`}
             onClick={() => { onOpenAccount(); setMobileOpen(false); }}
           >
             <b>{user.name || user.username}</b>{roleLabel}
