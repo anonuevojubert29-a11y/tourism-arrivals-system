@@ -36,7 +36,6 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [authMode, setAuthMode] = useState(emailLink?.mode || "login");
   const [authError, setAuthError] = useState("");
-  const [authNotice, setAuthNotice] = useState("");
   const [mainTab, setMainTab] = useState("overview");
   const [overviewFilterAccId, setOverviewFilterAccId] = useState(null);
   const [message, setMessage] = useState(null);
@@ -130,7 +129,6 @@ export default function App() {
   const dismissMessage = useCallback(() => setMessage(null), []);
   const dismissAuthFeedback = useCallback(() => {
     setAuthError("");
-    setAuthNotice("");
   }, []);
 
   const navigateTo = useCallback((tab, force = false) => {
@@ -156,7 +154,6 @@ export default function App() {
 
   async function handleLogin(username, password) {
     setAuthError("");
-    setAuthNotice("");
     try {
       const u = await loginUser(username, password);
       if (!u) { setAuthError("Invalid username or password."); return; }
@@ -176,14 +173,12 @@ export default function App() {
 
   async function handleRegister(form) {
     setAuthError("");
-    setAuthNotice("");
     if (form.password !== form.confirm) { setAuthError("Passwords do not match."); return; }
     if (!form.password || form.password.length < 8) { setAuthError("Password must be at least 8 characters."); return; }
     try {
       const result = await registerAccommodation(form);
       if (backendMode === "mysql") {
         setAuthMode("login");
-        setAuthNotice(result.message || "Check your email to verify the account before signing in.");
         return;
       }
       const { accommodation, user } = result;
@@ -247,7 +242,6 @@ export default function App() {
     setPageLoading(true);
     setAuthMode(mode);
     setAuthError("");
-    setAuthNotice("");
     navigationTimer.current = window.setTimeout(() => setPageLoading(false), 450);
   }
 
@@ -268,7 +262,6 @@ export default function App() {
     }
     setAuthMode("login");
     setAuthError("");
-    setAuthNotice("");
     navigationTimer.current = window.setTimeout(() => setPageLoading(false), 450);
   }
 
@@ -322,7 +315,6 @@ export default function App() {
           onForgotPassword={() => showAuthMode("forgot")}
           onResendVerification={() => showAuthMode("resend")}
           error={authError}
-          notice={authNotice}
         />
       );
     }
@@ -330,8 +322,8 @@ export default function App() {
       <div className="tas-root">
         {authView}
         <FeedbackDialog
-          type={authError ? "error" : "success"}
-          message={authError || authNotice}
+          type={authError ? "error" : undefined}
+          message={authError}
           onClose={dismissAuthFeedback}
         />
         <LoadingOverlay visible={pageLoading || requestBusy} label={requestBusy ? loadingLabel : "Loading page…"} />

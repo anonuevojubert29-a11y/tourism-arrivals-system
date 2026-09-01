@@ -5,12 +5,14 @@ const ICONS = { success: CheckCircle2, error: XCircle, info: Info };
 const TITLES = { success: "Success", error: "Something went wrong", info: "Notice" };
 
 export default function FeedbackDialog({ type = "success", message, onClose, title }) {
+  if (type === "info") return null;
+
   const buttonRef = useRef(null);
   const duration = type === "error" ? 6500 : 4500;
   const Icon = ICONS[type] || Info;
 
   useEffect(() => {
-    if (!message) return undefined;
+    if (!message || type === "info") return undefined;
     buttonRef.current?.focus();
     const timer = window.setTimeout(onClose, duration);
     const closeOnEscape = (event) => {

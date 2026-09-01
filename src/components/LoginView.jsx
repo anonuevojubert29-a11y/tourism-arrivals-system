@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { LogIn } from "lucide-react";
 
-export default function LoginView({ onLogin, onSwitch, onForgotPassword, onResendVerification, error, notice }) {
+export default function LoginView({ onLogin, onSwitch, onForgotPassword, onResendVerification, error }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   return (
