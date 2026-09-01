@@ -96,7 +96,6 @@ export default function Sidebar({ user, mainTab, setMainTab, onLogout, onOpenAcc
             <b>{user.name || user.username}</b>{roleLabel}
           </button>
           <button className="tas-logout" onClick={onLogout}><LogOut size={14} /> Log out</button>
-          <div className="tas-note">Local demo data · see README for connecting a real database.</div>
         </div>
       </aside>
     </>
