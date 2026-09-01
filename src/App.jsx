@@ -12,10 +12,12 @@ import AccommodationsPanel from "./components/AccommodationsPanel.jsx";
 import AdminAccountsPanel from "./components/AdminAccountsPanel.jsx";
 import DataPanel from "./components/DataPanel.jsx";
 import AccountSettings from "./components/AccountSettings.jsx";
+import NotificationsPage from "./components/NotificationsPage.jsx";
 import {
   ensureSeedData, fetchUsers, fetchAccommodations, loginUser, registerAccommodation, updateAccommodation,
   updateUserAccount, restoreApiSession, logoutUser, backendMode,
   verifyEmail, resendVerification, requestPasswordReset, resetPassword,
+  fetchNotifications, markNotificationRead, markAllNotificationsRead, deleteNotification, clearNotifications,
 } from "./lib/data.js";
 
 const SESSION_KEY = "tas_session_user_id";
@@ -37,6 +39,8 @@ export default function App() {
   const [authMode, setAuthMode] = useState(emailLink?.mode || "login");
   const [authError, setAuthError] = useState("");
   const [mainTab, setMainTab] = useState("overview");
+  const [notifications, setNotifications] = useState([]);
+  const [notificationsLoading, setNotificationsLoading] = useState(false);
   const [overviewFilterAccId, setOverviewFilterAccId] = useState(null);
   const [message, setMessage] = useState(null);
   const [initialError, setInitialError] = useState("");
@@ -131,13 +135,44 @@ export default function App() {
     setAuthError("");
   }, []);
 
+  const refreshNotifications = useCallback(async (silent = true) => {
+    if (!currentUser) return;
+    setNotificationsLoading(true);
+    try {
+      const next = await fetchNotifications(currentUser.id, { silent });
+      setNotifications(next);
+    } catch (error) {
+      if (!silent) notify("error", error.message || "Could not load notifications.");
+    } finally {
+      setNotificationsLoading(false);
+    }
+  }, [currentUser, notify]);
+
+  useEffect(() => {
+    if (!currentUser) {
+      setNotifications([]);
+      return undefined;
+    }
+    refreshNotifications(true);
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") refreshNotifications(true);
+    };
+    const interval = window.setInterval(refreshWhenVisible, 60000);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [currentUser, refreshNotifications]);
+
   const navigateTo = useCallback((tab, force = false) => {
     if (!force && tab === mainTab) return;
     window.clearTimeout(navigationTimer.current);
     setPageLoading(true);
     setMainTab(tab);
+    if (tab === "notifications") refreshNotifications(true);
     navigationTimer.current = window.setTimeout(() => setPageLoading(false), 450);
-  }, [mainTab]);
+  }, [mainTab, refreshNotifications]);
 
   useEffect(() => {
     const handleUnauthorized = () => {
@@ -222,6 +257,46 @@ export default function App() {
       return { ok: true, message: result.message };
     } catch (error) {
       return { ok: false, error: error.message || "Could not send verification email." };
+    }
+  }
+
+  async function handleMarkNotificationRead(notificationId) {
+    try {
+      await markNotificationRead(currentUser.id, notificationId);
+      setNotifications((current) => current.map((item) => (
+        item.id === notificationId ? { ...item, read: true } : item
+      )));
+    } catch (error) {
+      notify("error", error.message || "Could not update the notification.");
+    }
+  }
+
+  async function handleMarkAllNotificationsRead() {
+    try {
+      await markAllNotificationsRead(currentUser.id);
+      setNotifications((current) => current.map((item) => ({ ...item, read: true })));
+    } catch (error) {
+      notify("error", error.message || "Could not mark notifications as read.");
+    }
+  }
+
+  async function handleDeleteNotification(notificationId) {
+    try {
+      await deleteNotification(currentUser.id, notificationId);
+      setNotifications((current) => current.filter((item) => item.id !== notificationId));
+    } catch (error) {
+      notify("error", error.message || "Could not delete the notification.");
+    }
+  }
+
+  async function handleClearNotifications() {
+    try {
+      await clearNotifications(currentUser.id);
+      setNotifications([]);
+      return true;
+    } catch (error) {
+      notify("error", error.message || "Could not clear notifications.");
+      return false;
     }
   }
 
@@ -344,6 +419,7 @@ export default function App() {
         onLogout={handleLogout}
         onOpenAccount={() => navigateTo("settings")}
         staffApproved={staffAccommodation?.status === "approved"}
+        unreadNotifications={notifications.filter((item) => !item.read).length}
       />
       <div className="tas-main">
         {message && (
@@ -366,7 +442,20 @@ export default function App() {
           />
         )}
 
-        {mainTab !== "settings" && currentUser.role === "staff" && staffAccommodation && (
+        {mainTab === "notifications" && (
+          <NotificationsPage
+            notifications={notifications}
+            loading={notificationsLoading}
+            onRefresh={() => refreshNotifications(false)}
+            onMarkRead={handleMarkNotificationRead}
+            onMarkAllRead={handleMarkAllNotificationsRead}
+            onDelete={handleDeleteNotification}
+            onClear={handleClearNotifications}
+            onNavigate={navigateTo}
+          />
+        )}
+
+        {mainTab !== "settings" && mainTab !== "notifications" && currentUser.role === "staff" && staffAccommodation && (
           <StaffApp
             accommodation={staffAccommodation}
             tab={mainTab}
@@ -378,7 +467,7 @@ export default function App() {
           />
         )}
 
-        {mainTab !== "settings" && (currentUser.role === "admin" || currentUser.role === "superadmin") && (
+        {mainTab !== "settings" && mainTab !== "notifications" && (currentUser.role === "admin" || currentUser.role === "superadmin") && (
           <>
             <div className="tas-pagehead">
               <div>

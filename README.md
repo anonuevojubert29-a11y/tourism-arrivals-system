@@ -20,6 +20,10 @@ of origin), rolled up into an admin dashboard, and printable as a report.
   accommodation accounts, and a Data page showing where the underlying data
   lives. The accommodations page also shows the linked account email and its
   verification status.
+- **All signed-in users** — a persistent notification inbox with unread
+  counts, read/unread filtering, direct links to related pages, individual
+  deletion, and clear-all controls. Registration and approval changes are
+  delivered to the relevant accounts automatically.
 
 ## Quick start (no database required)
 
@@ -117,6 +121,7 @@ Existing accounts can add and verify an address under **My account**.
 ```
 accommodations            one row per registered establishment
 users                      staff / admin / superadmin, password_hash is bcrypt
+notifications              per-user registration, approval, and availability updates
 user_auth_tokens           hashed, expiring email-verification/reset tokens
 arrivals                   one row per (accommodation, date, visit type) —
                            visit_type is 'overnight' or 'daytour'
@@ -155,6 +160,7 @@ src/
                                  arrivals" and "Day tour" (visitType prop)
     StaffHistory.jsx / StaffSettings.jsx
     AccountSettings.jsx        "My account" — name + password change (any role)
+    NotificationsPage.jsx      persistent per-user notification inbox
     Overview.jsx               admin/super-admin analytics dashboard
                                  (filterable by accommodation and visit type)
     PrintableReport.jsx        print-only report layout
@@ -164,7 +170,7 @@ src/
     StatTile.jsx / CategoryStatTile.jsx / NumberField.jsx / StatusBadge.jsx / Banner.jsx
 
 server/
-  index.js       Express API (accommodations, users/auth, arrivals)
+  index.js       Express API (accommodations, users/auth, notifications, arrivals)
   db.js          MySQL connection pool
   schema.sql     table definitions
   migrate.js     one-time setup: creates tables + seeds a super admin

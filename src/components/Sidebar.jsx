@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import {
   LogOut, BarChart3, Building2, Users, Database, Moon, Sun,
-  ClipboardList, Settings as SettingsIcon, Menu, X,
+  ClipboardList, Settings as SettingsIcon, Menu, X, Bell,
 } from "lucide-react";
 
 const NAV = {
@@ -31,9 +31,12 @@ function staffNav(approved) {
   return items;
 }
 
-export default function Sidebar({ user, mainTab, setMainTab, onLogout, onOpenAccount, staffApproved }) {
+export default function Sidebar({ user, mainTab, setMainTab, onLogout, onOpenAccount, staffApproved, unreadNotifications = 0 }) {
   const [mobileOpen, setMobileOpen] = useState(false);
-  const items = user.role === "staff" ? staffNav(staffApproved) : NAV[user.role];
+  const roleItems = user.role === "staff" ? staffNav(staffApproved) : NAV[user.role];
+  const settingsIndex = roleItems.findIndex((item) => item.id === "settings");
+  const items = [...roleItems];
+  items.splice(settingsIndex < 0 ? items.length : settingsIndex, 0, { id: "notifications", label: "Notifications", icon: Bell });
   const roleLabel = user.role === "superadmin" ? "Super Admin" : user.role === "admin" ? "Admin" : "Accommodation Staff";
 
   useEffect(() => {
@@ -86,7 +89,12 @@ export default function Sidebar({ user, mainTab, setMainTab, onLogout, onOpenAcc
         <nav className="tas-nav" aria-label="System sections">
           {items.map((it) => (
             <button key={it.id} className={`tas-navbtn ${mainTab === it.id ? "active" : ""}`} onClick={() => navigate(it.id)}>
-              <it.icon size={17} /> {it.label}
+              <it.icon size={17} /> <span>{it.label}</span>
+              {it.id === "notifications" && unreadNotifications > 0 && (
+                <span className="nav-notification-count" aria-label={`${unreadNotifications} unread notifications`}>
+                  {unreadNotifications > 99 ? "99+" : unreadNotifications}
+                </span>
+              )}
             </button>
           ))}
         </nav>

@@ -84,10 +84,11 @@ function setApiToken(token) {
 }
 
 async function apiFetch(path, options = {}) {
+  const { silent = false, ...requestOptions } = options;
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), API_TIMEOUT_MS);
   const token = getApiToken();
-  const method = (options.method || "GET").toUpperCase();
+  const method = (requestOptions.method || "GET").toUpperCase();
   const loadingLabel = path === "/api/auth/login"
     ? "Signing in…"
     : path.includes("forgot-password") || path.includes("resend-verification")
@@ -98,17 +99,17 @@ async function apiFetch(path, options = {}) {
           ? "Updating password…"
           : method === "GET" ? "Loading information…" : "Saving changes…";
 
-  window.dispatchEvent(new CustomEvent("tas:loading-start", { detail: { label: loadingLabel } }));
+  if (!silent) window.dispatchEvent(new CustomEvent("tas:loading-start", { detail: { label: loadingLabel } }));
 
   try {
     const res = await fetch(`${API_BASE}${path}`, {
-      ...options,
+      ...requestOptions,
       headers: {
         "Content-Type": "application/json",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...(options.headers || {}),
+        ...(requestOptions.headers || {}),
       },
-      signal: options.signal || controller.signal,
+      signal: requestOptions.signal || controller.signal,
     });
     if (res.status === 404) return null;
     if (!res.ok) {
@@ -134,8 +135,23 @@ async function apiFetch(path, options = {}) {
     throw error;
   } finally {
     window.clearTimeout(timeout);
-    window.dispatchEvent(new Event("tas:loading-end"));
+    if (!silent) window.dispatchEvent(new Event("tas:loading-end"));
   }
+}
+
+const NOTIFICATIONS_KEY = "notifications";
+
+function makeNotification(userId, type, title, message, actionTab = null) {
+  return {
+    id: uid(), userId, type, title, message, actionTab,
+    read: false, createdAt: new Date().toISOString(),
+  };
+}
+
+async function appendLocalNotifications(items) {
+  if (items.length === 0) return true;
+  const notifications = await kvGetJSON(NOTIFICATIONS_KEY, []);
+  return kvSetJSON(NOTIFICATIONS_KEY, [...items, ...notifications]);
 }
 
 /* ================================ Public data API ================================ */
@@ -152,6 +168,8 @@ export async function ensureSeedData() {
     accommodations = [];
     await kvSetJSON("accommodations", accommodations);
   }
+  const notifications = await kvGetJSON(NOTIFICATIONS_KEY, null);
+  if (!notifications) await kvSetJSON(NOTIFICATIONS_KEY, []);
 }
 
 export async function restoreApiSession() {
@@ -222,6 +240,24 @@ export async function registerAccommodation(form) {
   };
   await kvSetJSON("accommodations", [...accommodations, accommodation]);
   await kvSetJSON("users", [...users, user]);
+  await appendLocalNotifications([
+    makeNotification(
+      user.id,
+      "status",
+      "Registration submitted",
+      `${accommodation.name} is waiting for approval from the tourism office.`,
+      "settings"
+    ),
+    ...users
+      .filter((item) => item.role === "admin" || item.role === "superadmin")
+      .map((item) => makeNotification(
+        item.id,
+        "registration",
+        "New accommodation registration",
+        `${accommodation.name} submitted a registration for review.`,
+        "accommodations"
+      )),
+  ]);
   return { accommodation, user };
 }
 
@@ -235,8 +271,41 @@ export async function updateAccommodation(id, patch) {
     }
   }
   const accommodations = await kvGetJSON("accommodations", []);
+  const existing = accommodations.find((a) => a.id === id);
   const next = accommodations.map((a) => (a.id === id ? { ...a, ...patch } : a));
-  return kvSetJSON("accommodations", next);
+  const saved = await kvSetJSON("accommodations", next);
+  if (!saved || !existing) return saved;
+
+  const users = await kvGetJSON("users", []);
+  const generated = [];
+  if (patch.status && patch.status !== existing.status) {
+    users
+      .filter((user) => user.role === "staff" && user.accommodationId === id)
+      .forEach((user) => generated.push(makeNotification(
+        user.id,
+        "status",
+        patch.status === "approved" ? "Registration approved" : patch.status === "rejected" ? "Registration not approved" : "Registration under review",
+        patch.status === "approved"
+          ? `${existing.name} was approved. You can now record tourism arrivals.`
+          : patch.status === "rejected"
+            ? `${existing.name} was not approved. Contact the tourism office for details.`
+            : `${existing.name} was returned to pending review.`,
+        "settings"
+      )));
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "fullyBooked") && Boolean(patch.fullyBooked) !== Boolean(existing.fullyBooked)) {
+    users
+      .filter((user) => user.role === "admin" || user.role === "superadmin")
+      .forEach((user) => generated.push(makeNotification(
+        user.id,
+        "booking",
+        patch.fullyBooked ? "Accommodation fully booked" : "Accommodation accepting guests",
+        `${existing.name} is now ${patch.fullyBooked ? "fully booked" : "accepting guests"}.`,
+        "accommodations"
+      )));
+  }
+  await appendLocalNotifications(generated);
+  return true;
 }
 
 export async function deleteAccommodationAccount(id) {
@@ -248,14 +317,17 @@ export async function deleteAccommodationAccount(id) {
       return { ok: false, error: error.message };
     }
   }
-  const [accommodations, users, arrivalKeys] = await Promise.all([
+  const [accommodations, users, arrivalKeys, notifications] = await Promise.all([
     kvGetJSON("accommodations", []),
     kvGetJSON("users", []),
     kvListKeys(`arrival:${id}:`),
+    kvGetJSON(NOTIFICATIONS_KEY, []),
   ]);
+  const removedUserIds = new Set(users.filter((user) => user.accommodationId === id).map((user) => user.id));
   const results = await Promise.all([
     kvSetJSON("accommodations", accommodations.filter((item) => item.id !== id)),
     kvSetJSON("users", users.filter((user) => user.accommodationId !== id)),
+    kvSetJSON(NOTIFICATIONS_KEY, notifications.filter((item) => !removedUserIds.has(item.userId))),
     ...arrivalKeys.map(kvDeleteKey),
   ]);
   return results.every(Boolean) ? { ok: true } : { ok: false, error: "Could not remove accommodation account." };
@@ -293,7 +365,61 @@ export async function deleteUserAccount(userId) {
   if (!target) return { ok: false, error: "Account not found." };
   if (target.role === "superadmin") return { ok: false, error: "The super-admin account cannot be deleted." };
   const ok = await kvSetJSON("users", users.filter((user) => user.id !== userId));
+  if (ok) {
+    const notifications = await kvGetJSON(NOTIFICATIONS_KEY, []);
+    await kvSetJSON(NOTIFICATIONS_KEY, notifications.filter((item) => item.userId !== userId));
+  }
   return ok ? { ok: true } : { ok: false, error: "Could not remove account." };
+}
+
+export async function fetchNotifications(userId, { silent = false } = {}) {
+  if (hasApi) return (await apiFetch("/api/notifications", { silent })) || [];
+  const notifications = await kvGetJSON(NOTIFICATIONS_KEY, []);
+  return notifications
+    .filter((item) => item.userId === userId)
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+}
+
+export async function markNotificationRead(userId, notificationId) {
+  if (hasApi) {
+    await apiFetch(`/api/notifications/${notificationId}/read`, { method: "PATCH" });
+    return true;
+  }
+  const notifications = await kvGetJSON(NOTIFICATIONS_KEY, []);
+  return kvSetJSON(NOTIFICATIONS_KEY, notifications.map((item) => (
+    item.id === notificationId && item.userId === userId ? { ...item, read: true } : item
+  )));
+}
+
+export async function markAllNotificationsRead(userId) {
+  if (hasApi) {
+    await apiFetch("/api/notifications/read-all", { method: "PATCH" });
+    return true;
+  }
+  const notifications = await kvGetJSON(NOTIFICATIONS_KEY, []);
+  return kvSetJSON(NOTIFICATIONS_KEY, notifications.map((item) => (
+    item.userId === userId ? { ...item, read: true } : item
+  )));
+}
+
+export async function deleteNotification(userId, notificationId) {
+  if (hasApi) {
+    await apiFetch(`/api/notifications/${notificationId}`, { method: "DELETE" });
+    return true;
+  }
+  const notifications = await kvGetJSON(NOTIFICATIONS_KEY, []);
+  return kvSetJSON(NOTIFICATIONS_KEY, notifications.filter((item) => (
+    item.id !== notificationId || item.userId !== userId
+  )));
+}
+
+export async function clearNotifications(userId) {
+  if (hasApi) {
+    await apiFetch("/api/notifications", { method: "DELETE" });
+    return true;
+  }
+  const notifications = await kvGetJSON(NOTIFICATIONS_KEY, []);
+  return kvSetJSON(NOTIFICATIONS_KEY, notifications.filter((item) => item.userId !== userId));
 }
 
 export async function updateUserAccount(userId, { name, email, currentPassword, newPassword } = {}) {

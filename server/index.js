@@ -140,6 +140,34 @@ function mapUser(row) {
   };
 }
 
+function mapNotification(row) {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    type: row.type,
+    title: row.title,
+    message: row.message,
+    actionTab: row.action_tab || null,
+    read: Boolean(row.is_read),
+    createdAt: row.created_at,
+  };
+}
+
+async function createNotification(connection, userId, type, title, message, actionTab = null) {
+  await connection.query(
+    `INSERT INTO notifications (id, user_id, type, title, message, action_tab)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [genId(), userId, type, title, message, actionTab]
+  );
+}
+
+async function notifyRoles(connection, roles, type, title, message, actionTab = null) {
+  const [users] = await connection.query("SELECT id FROM users WHERE role IN (?)", [roles]);
+  for (const user of users) {
+    await createNotification(connection, user.id, type, title, message, actionTab);
+  }
+}
+
 function signToken(user, authVersion = 0) {
   return jwt.sign(
     { sub: user.id, ver: Number(authVersion) },
@@ -279,6 +307,9 @@ app.patch(
     } else if (req.user.role !== "superadmin") {
       return res.status(403).json({ error: "Only a super admin can update another accommodation." });
     }
+    const [existingRows] = await pool.query("SELECT * FROM accommodations WHERE id = ?", [id]);
+    if (existingRows.length === 0) return res.status(404).json({ error: "Accommodation not found" });
+    const existing = existingRows[0];
     const columnByField = {
       name: "name",
       municipality: "municipality",
@@ -298,11 +329,109 @@ app.patch(
       }
     }
     if (sets.length === 0) return res.status(400).json({ error: "No fields to update" });
-    values.push(id);
-    await pool.query(`UPDATE accommodations SET ${sets.join(", ")} WHERE id = ?`, values);
-    const [rows] = await pool.query("SELECT * FROM accommodations WHERE id = ?", [id]);
-    if (rows.length === 0) return res.status(404).json({ error: "Accommodation not found" });
-    res.json(mapAccommodation(rows[0]));
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      await connection.query(`UPDATE accommodations SET ${sets.join(", ")} WHERE id = ?`, [...values, id]);
+
+      if (req.body.status && req.body.status !== existing.status) {
+        const [staffUsers] = await connection.query(
+          "SELECT id FROM users WHERE role = 'staff' AND accommodation_id = ?",
+          [id]
+        );
+        const title = req.body.status === "approved"
+          ? "Registration approved"
+          : req.body.status === "rejected" ? "Registration not approved" : "Registration under review";
+        const message = req.body.status === "approved"
+          ? `${existing.name} was approved. You can now record tourism arrivals.`
+          : req.body.status === "rejected"
+            ? `${existing.name} was not approved. Contact the tourism office for details.`
+            : `${existing.name} was returned to pending review.`;
+        for (const user of staffUsers) {
+          await createNotification(connection, user.id, "status", title, message, "settings");
+        }
+      }
+
+      if (Object.prototype.hasOwnProperty.call(req.body, "fullyBooked")
+          && Boolean(req.body.fullyBooked) !== Boolean(existing.fully_booked)) {
+        await notifyRoles(
+          connection,
+          ["admin", "superadmin"],
+          "booking",
+          req.body.fullyBooked ? "Accommodation fully booked" : "Accommodation accepting guests",
+          `${existing.name} is now ${req.body.fullyBooked ? "fully booked" : "accepting guests"}.`,
+          "accommodations"
+        );
+      }
+
+      const [rows] = await connection.query("SELECT * FROM accommodations WHERE id = ?", [id]);
+      await connection.commit();
+      res.json(mapAccommodation(rows[0]));
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  })
+);
+
+/* ---------------------------- notifications ---------------------------- */
+
+app.get(
+  "/api/notifications",
+  requireAuth,
+  ah(async (req, res) => {
+    const [rows] = await pool.query(
+      `SELECT id, user_id, type, title, message, action_tab, is_read, created_at
+       FROM notifications WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT 200`,
+      [req.user.id]
+    );
+    res.json(rows.map(mapNotification));
+  })
+);
+
+app.patch(
+  "/api/notifications/read-all",
+  requireAuth,
+  ah(async (req, res) => {
+    await pool.query("UPDATE notifications SET is_read = 1 WHERE user_id = ?", [req.user.id]);
+    res.json({ ok: true });
+  })
+);
+
+app.patch(
+  "/api/notifications/:id/read",
+  requireAuth,
+  ah(async (req, res) => {
+    const [result] = await pool.query(
+      "UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?",
+      [req.params.id, req.user.id]
+    );
+    if (result.affectedRows === 0) return res.status(404).json({ error: "Notification not found." });
+    res.json({ ok: true });
+  })
+);
+
+app.delete(
+  "/api/notifications/:id",
+  requireAuth,
+  ah(async (req, res) => {
+    const [result] = await pool.query(
+      "DELETE FROM notifications WHERE id = ? AND user_id = ?",
+      [req.params.id, req.user.id]
+    );
+    if (result.affectedRows === 0) return res.status(404).json({ error: "Notification not found." });
+    res.status(204).end();
+  })
+);
+
+app.delete(
+  "/api/notifications",
+  requireAuth,
+  ah(async (req, res) => {
+    await pool.query("DELETE FROM notifications WHERE user_id = ?", [req.user.id]);
+    res.status(204).end();
   })
 );
 
@@ -551,6 +680,22 @@ app.post(
       await connection.query(
         "INSERT INTO users (id, username, email, password_hash, role, name, accommodation_id) VALUES (?, ?, ?, ?, 'staff', ?, ?)",
         [userId, cleanUsername, cleanEmail, passwordHash, contactPerson || cleanAccName, accId]
+      );
+      await createNotification(
+        connection,
+        userId,
+        "status",
+        "Registration submitted",
+        `${cleanAccName} is waiting for approval from the tourism office.`,
+        "settings"
+      );
+      await notifyRoles(
+        connection,
+        ["admin", "superadmin"],
+        "registration",
+        "New accommodation registration",
+        `${cleanAccName} submitted a registration for review.`,
+        "accommodations"
       );
       verificationToken = await createActionToken(connection, userId, "verify_email", 24 * 60 * 60 * 1000);
       await connection.commit();
