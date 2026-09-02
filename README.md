@@ -124,6 +124,7 @@ accommodations            one row per registered establishment
 users                      staff / admin / superadmin, password_hash is bcrypt
 notifications              per-user registration, approval, and availability updates
 user_auth_tokens           hashed, expiring email-verification/reset tokens
+audit_logs                 append-only history of successful API data changes
 arrivals                   one row per (accommodation, date, visit type) —
                            visit_type is 'overnight' or 'daytour'
 arrival_foreign_entries    one row per country per arrival record
@@ -172,6 +173,7 @@ src/
 
 server/
   index.js       Express API (accommodations, users/auth, notifications, arrivals)
+  audit.js       parameterized audit writer + API response mapper
   validation.js  Zod request schemas + reusable Express validation middleware
   security.js    strict CORS origin policy + CSRF request guard
   db.js          MySQL connection pool
@@ -203,6 +205,11 @@ for Postgres, or a hosted API) — only `src/lib/data.js` would need to change.
   route parameters, and query strings before handlers use them. Production
   CORS requires explicit trusted origins; state-changing browser requests
   also require an allowed Origin/Referer and the `X-CSRF-Protection` header.
+  Every successful API data change writes an audit row in the same database
+  transaction, including the actor snapshot, target, request context, and
+  non-sensitive change summary. Super admins can read the latest records from
+  `GET /api/audit-logs`; passwords, authorization headers, and email tokens are
+  never included in audit details.
   New accounts cannot sign in
   until their unique email is verified. Verification and reset tokens are
   random, stored only as SHA-256 hashes, expiring, and single-use. Password

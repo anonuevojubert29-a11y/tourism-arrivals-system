@@ -32,6 +32,11 @@ test("arrival queries reject reversed date ranges", () => {
   assert.equal(result.success, false);
 });
 
+test("audit log queries coerce and cap the result limit", () => {
+  assert.equal(schemas.auditLogQuery.parse({ limit: "50" }).limit, 50);
+  assert.equal(schemas.auditLogQuery.safeParse({ limit: "501" }).success, false);
+});
+
 test("arrival records accept valid whole-number counts", () => {
   const result = schemas.arrivalBody.safeParse({
     maleLocal: 4,

@@ -60,6 +60,27 @@ CREATE TABLE IF NOT EXISTS user_auth_tokens (
     REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  actor_user_id VARCHAR(32) NULL,
+  actor_username VARCHAR(100) NULL,
+  actor_role VARCHAR(20) NULL,
+  action VARCHAR(80) NOT NULL,
+  entity_type VARCHAR(50) NOT NULL,
+  entity_id VARCHAR(128) NULL,
+  method VARCHAR(10) NOT NULL,
+  route VARCHAR(255) NOT NULL,
+  details JSON NULL,
+  ip_address VARCHAR(45) NULL,
+  user_agent VARCHAR(500) NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_audit_actor_created (actor_user_id, created_at),
+  INDEX idx_audit_entity_created (entity_type, entity_id, created_at),
+  INDEX idx_audit_action_created (action, created_at),
+  CONSTRAINT fk_audit_actor FOREIGN KEY (actor_user_id)
+    REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS arrivals (
   id INT AUTO_INCREMENT PRIMARY KEY,
   accommodation_id VARCHAR(32) NOT NULL,

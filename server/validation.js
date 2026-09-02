@@ -120,6 +120,12 @@ export const schemas = {
   token: z.object({ token: requiredText("Token", 256) }),
   email: z.object({ email }),
   resetPassword: z.object({ token: requiredText("Token", 256), newPassword: password }),
+  auditLogQuery: z.object({
+    action: optionalText(80),
+    entityType: optionalText(50),
+    actorUserId: id.optional(),
+    limit: z.coerce.number().int().min(1).max(500).default(100),
+  }),
   arrivalQuery: z.object({
     from: date.optional(),
     to: date.optional(),

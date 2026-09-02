@@ -6,6 +6,7 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { rateLimit } from "express-rate-limit";
 import { pool } from "./db.js";
+import { mapAuditLog, writeAuditLog } from "./audit.js";
 import { isMailConfigured, sendPasswordResetEmail, sendVerificationEmail } from "./mail.js";
 import { schemas, validate } from "./validation.js";
 import { createCorsOptions, createCsrfGuard, createOriginPolicy } from "./security.js";
@@ -274,7 +275,7 @@ app.delete(
     try {
       await connection.beginTransaction();
       const [accommodations] = await connection.query(
-        "SELECT id FROM accommodations WHERE id = ? FOR UPDATE",
+        "SELECT id, name FROM accommodations WHERE id = ? FOR UPDATE",
         [id]
       );
       if (accommodations.length === 0) {
@@ -285,6 +286,12 @@ app.delete(
       // their accommodation_id to NULL and leave orphaned login accounts.
       await connection.query("DELETE FROM users WHERE accommodation_id = ?", [id]);
       await connection.query("DELETE FROM accommodations WHERE id = ?", [id]);
+      await writeAuditLog(connection, req, {
+        action: "accommodation.deleted",
+        entityType: "accommodation",
+        entityId: id,
+        details: { name: accommodations[0].name },
+      });
       await connection.commit();
       res.status(204).end();
     } catch (error) {
@@ -370,6 +377,12 @@ app.patch(
       }
 
       const [rows] = await connection.query("SELECT * FROM accommodations WHERE id = ?", [id]);
+      await writeAuditLog(connection, req, {
+        action: "accommodation.updated",
+        entityType: "accommodation",
+        entityId: id,
+        details: { changedFields: Object.keys(req.body) },
+      });
       await connection.commit();
       res.json(mapAccommodation(rows[0]));
     } catch (error) {
@@ -400,8 +413,26 @@ app.patch(
   "/api/notifications/read-all",
   requireAuth,
   ah(async (req, res) => {
-    await pool.query("UPDATE notifications SET is_read = 1 WHERE user_id = ?", [req.user.id]);
-    res.json({ ok: true });
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [result] = await connection.query(
+        "UPDATE notifications SET is_read = 1 WHERE user_id = ? AND is_read = 0",
+        [req.user.id]
+      );
+      await writeAuditLog(connection, req, {
+        action: "notifications.read_all",
+        entityType: "notification",
+        details: { count: result.affectedRows },
+      });
+      await connection.commit();
+      res.json({ ok: true });
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
   })
 );
 
@@ -410,12 +441,34 @@ app.patch(
   requireAuth,
   validate({ params: schemas.notificationIdParams }),
   ah(async (req, res) => {
-    const [result] = await pool.query(
-      "UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?",
-      [req.params.id, req.user.id]
-    );
-    if (result.affectedRows === 0) return res.status(404).json({ error: "Notification not found." });
-    res.json({ ok: true });
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [notifications] = await connection.query(
+        "SELECT id FROM notifications WHERE id = ? AND user_id = ? FOR UPDATE",
+        [req.params.id, req.user.id]
+      );
+      if (notifications.length === 0) {
+        await connection.rollback();
+        return res.status(404).json({ error: "Notification not found." });
+      }
+      await connection.query(
+        "UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?",
+        [req.params.id, req.user.id]
+      );
+      await writeAuditLog(connection, req, {
+        action: "notification.read",
+        entityType: "notification",
+        entityId: req.params.id,
+      });
+      await connection.commit();
+      res.json({ ok: true });
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
   })
 );
 
@@ -424,12 +477,30 @@ app.delete(
   requireAuth,
   validate({ params: schemas.notificationIdParams }),
   ah(async (req, res) => {
-    const [result] = await pool.query(
-      "DELETE FROM notifications WHERE id = ? AND user_id = ?",
-      [req.params.id, req.user.id]
-    );
-    if (result.affectedRows === 0) return res.status(404).json({ error: "Notification not found." });
-    res.status(204).end();
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [result] = await connection.query(
+        "DELETE FROM notifications WHERE id = ? AND user_id = ?",
+        [req.params.id, req.user.id]
+      );
+      if (result.affectedRows === 0) {
+        await connection.rollback();
+        return res.status(404).json({ error: "Notification not found." });
+      }
+      await writeAuditLog(connection, req, {
+        action: "notification.deleted",
+        entityType: "notification",
+        entityId: req.params.id,
+      });
+      await connection.commit();
+      res.status(204).end();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
   })
 );
 
@@ -437,8 +508,23 @@ app.delete(
   "/api/notifications",
   requireAuth,
   ah(async (req, res) => {
-    await pool.query("DELETE FROM notifications WHERE user_id = ?", [req.user.id]);
-    res.status(204).end();
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [result] = await connection.query("DELETE FROM notifications WHERE user_id = ?", [req.user.id]);
+      await writeAuditLog(connection, req, {
+        action: "notifications.cleared",
+        entityType: "notification",
+        details: { count: result.affectedRows },
+      });
+      await connection.commit();
+      res.status(204).end();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
   })
 );
 
@@ -453,6 +539,38 @@ app.get(
       "SELECT id, username, email, email_verified_at, role, name, accommodation_id FROM users ORDER BY created_at ASC"
     );
     res.json(rows.map(mapUser));
+  })
+);
+
+app.get(
+  "/api/audit-logs",
+  requireAuth,
+  requireRole("superadmin"),
+  validate({ query: schemas.auditLogQuery }),
+  ah(async (req, res) => {
+    const { action, entityType, actorUserId, limit } = req.query;
+    const clauses = [];
+    const values = [];
+    if (action) {
+      clauses.push("action = ?");
+      values.push(action);
+    }
+    if (entityType) {
+      clauses.push("entity_type = ?");
+      values.push(entityType);
+    }
+    if (actorUserId) {
+      clauses.push("actor_user_id = ?");
+      values.push(actorUserId);
+    }
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
+    const [rows] = await pool.query(
+      `SELECT id, actor_user_id, actor_username, actor_role, action, entity_type,
+              entity_id, method, route, details, ip_address, user_agent, created_at
+       FROM audit_logs ${where} ORDER BY created_at DESC, id DESC LIMIT ?`,
+      [...values, limit]
+    );
+    res.json(rows.map(mapAuditLog));
   })
 );
 
@@ -487,6 +605,12 @@ app.post(
         [id, cleanUsername, cleanEmail, passwordHash, cleanName]
       );
       token = await createActionToken(connection, id, "verify_email", 24 * 60 * 60 * 1000);
+      await writeAuditLog(connection, req, {
+        action: "user.created",
+        entityType: "user",
+        entityId: id,
+        details: { role: "admin", username: cleanUsername },
+      });
       await connection.commit();
     } catch (error) {
       await connection.rollback();
@@ -523,19 +647,40 @@ app.delete(
     if (req.user.id === id) {
       return res.status(400).json({ error: "You cannot delete your own account." });
     }
-    const [users] = await pool.query(
-      "SELECT id, role, accommodation_id FROM users WHERE id = ?",
-      [id]
-    );
-    if (users.length === 0) return res.status(404).json({ error: "Account not found." });
-    if (users[0].role === "superadmin") {
-      return res.status(403).json({ error: "The super-admin account cannot be deleted." });
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [users] = await connection.query(
+        "SELECT id, username, role, accommodation_id FROM users WHERE id = ? FOR UPDATE",
+        [id]
+      );
+      if (users.length === 0) {
+        await connection.rollback();
+        return res.status(404).json({ error: "Account not found." });
+      }
+      if (users[0].role === "superadmin") {
+        await connection.rollback();
+        return res.status(403).json({ error: "The super-admin account cannot be deleted." });
+      }
+      if (users[0].role === "staff" && users[0].accommodation_id) {
+        await connection.rollback();
+        return res.status(400).json({ error: "Remove this staff account from the Accommodations page." });
+      }
+      await connection.query("DELETE FROM users WHERE id = ?", [id]);
+      await writeAuditLog(connection, req, {
+        action: "user.deleted",
+        entityType: "user",
+        entityId: id,
+        details: { role: users[0].role, username: users[0].username },
+      });
+      await connection.commit();
+      res.status(204).end();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
     }
-    if (users[0].role === "staff" && users[0].accommodation_id) {
-      return res.status(400).json({ error: "Remove this staff account from the Accommodations page." });
-    }
-    await pool.query("DELETE FROM users WHERE id = ?", [id]);
-    res.status(204).end();
   })
 );
 
@@ -602,6 +747,18 @@ app.patch(
         [id]
       );
       updatedRow = updated[0];
+      await writeAuditLog(connection, req, {
+        action: "user.updated",
+        entityType: "user",
+        entityId: id,
+        details: {
+          changedFields: [
+            ...(name ? ["name"] : []),
+            ...(emailChanged ? ["email"] : []),
+            ...(passwordChanged ? ["password"] : []),
+          ],
+        },
+      });
       await connection.commit();
     } catch (error) {
       await connection.rollback();
@@ -710,6 +867,13 @@ app.post(
         "accommodations"
       );
       verificationToken = await createActionToken(connection, userId, "verify_email", 24 * 60 * 60 * 1000);
+      await writeAuditLog(connection, req, {
+        actor: { id: userId, username: cleanUsername, role: "staff" },
+        action: "registration.created",
+        entityType: "accommodation",
+        entityId: accId,
+        details: { userId },
+      });
       await connection.commit();
     } catch (error) {
       await connection.rollback();
@@ -748,8 +912,10 @@ app.post(
     try {
       await connection.beginTransaction();
       const [tokens] = await connection.query(
-        `SELECT id, user_id FROM user_auth_tokens
-         WHERE token_hash = ? AND token_type = 'verify_email' AND used_at IS NULL AND expires_at > NOW()
+        `SELECT t.id, t.user_id, u.username, u.role FROM user_auth_tokens t
+         JOIN users u ON u.id = t.user_id
+         WHERE t.token_hash = ? AND t.token_type = 'verify_email'
+           AND t.used_at IS NULL AND t.expires_at > NOW()
          FOR UPDATE`,
         [hashActionToken(token)]
       );
@@ -763,6 +929,12 @@ app.post(
         "DELETE FROM user_auth_tokens WHERE user_id = ? AND token_type = 'verify_email' AND id <> ?",
         [tokens[0].user_id, tokens[0].id]
       );
+      await writeAuditLog(connection, req, {
+        actor: { id: tokens[0].user_id, username: tokens[0].username, role: tokens[0].role },
+        action: "user.email_verified",
+        entityType: "user",
+        entityId: tokens[0].user_id,
+      });
       await connection.commit();
       res.json({ message: "Email verified. You can now sign in." });
     } catch (error) {
@@ -792,6 +964,11 @@ app.post(
       try {
         await connection.beginTransaction();
         token = await createActionToken(connection, users[0].id, "verify_email", 24 * 60 * 60 * 1000);
+        await writeAuditLog(connection, req, {
+          action: "user.verification_requested",
+          entityType: "user",
+          entityId: users[0].id,
+        });
         await connection.commit();
       } catch (error) {
         await connection.rollback();
@@ -823,6 +1000,11 @@ app.post(
       try {
         await connection.beginTransaction();
         token = await createActionToken(connection, users[0].id, "reset_password", 60 * 60 * 1000);
+        await writeAuditLog(connection, req, {
+          action: "user.password_reset_requested",
+          entityType: "user",
+          entityId: users[0].id,
+        });
         await connection.commit();
       } catch (error) {
         await connection.rollback();
@@ -851,8 +1033,10 @@ app.post(
     try {
       await connection.beginTransaction();
       const [tokens] = await connection.query(
-        `SELECT id, user_id FROM user_auth_tokens
-         WHERE token_hash = ? AND token_type = 'reset_password' AND used_at IS NULL AND expires_at > NOW()
+        `SELECT t.id, t.user_id, u.username, u.role FROM user_auth_tokens t
+         JOIN users u ON u.id = t.user_id
+         WHERE t.token_hash = ? AND t.token_type = 'reset_password'
+           AND t.used_at IS NULL AND t.expires_at > NOW()
          FOR UPDATE`,
         [hashActionToken(token)]
       );
@@ -870,6 +1054,12 @@ app.post(
         "DELETE FROM user_auth_tokens WHERE user_id = ? AND token_type = 'reset_password' AND id <> ?",
         [tokens[0].user_id, tokens[0].id]
       );
+      await writeAuditLog(connection, req, {
+        actor: { id: tokens[0].user_id, username: tokens[0].username, role: tokens[0].role },
+        action: "user.password_reset",
+        entityType: "user",
+        entityId: tokens[0].user_id,
+      });
       await connection.commit();
       res.json({ message: "Password changed. You can now sign in with your new password." });
     } catch (error) {
@@ -1047,6 +1237,13 @@ app.put(
         `${accommodationRows[0].name} ${action} its ${visitLabel} arrivals for ${date}: ${total} visitor${total === 1 ? "" : "s"}.`,
         "overview"
       );
+
+      await writeAuditLog(conn, req, {
+        action: existing.length > 0 ? "arrival.updated" : "arrival.created",
+        entityType: "arrival",
+        entityId: arrivalId,
+        details: { accommodationId, date, visitType, total },
+      });
 
       await conn.commit();
       res.json({ ok: true });
