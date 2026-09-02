@@ -173,6 +173,7 @@ src/
 server/
   index.js       Express API (accommodations, users/auth, notifications, arrivals)
   validation.js  Zod request schemas + reusable Express validation middleware
+  security.js    strict CORS origin policy + CSRF request guard
   db.js          MySQL connection pool
   schema.sql     table definitions
   migrate.js     one-time setup: creates tables + seeds a super admin
@@ -199,7 +200,10 @@ for Postgres, or a hosted API) — only `src/lib/data.js` would need to change.
 - **MySQL mode**: passwords are hashed with bcrypt server-side. Successful
   login issues a time-limited JWT, and every data route checks authentication
   plus the caller's role/accommodation ownership. Zod validates API bodies,
-  route parameters, and query strings before handlers use them. New accounts cannot sign in
+  route parameters, and query strings before handlers use them. Production
+  CORS requires explicit trusted origins; state-changing browser requests
+  also require an allowed Origin/Referer and the `X-CSRF-Protection` header.
+  New accounts cannot sign in
   until their unique email is verified. Verification and reset tokens are
   random, stored only as SHA-256 hashes, expiring, and single-use. Password
   changes revoke older sessions. Set strong `JWT_SECRET` and SMTP credentials

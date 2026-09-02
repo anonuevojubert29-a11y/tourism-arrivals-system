@@ -89,6 +89,7 @@ async function apiFetch(path, options = {}) {
   const timeout = window.setTimeout(() => controller.abort(), API_TIMEOUT_MS);
   const token = getApiToken();
   const method = (requestOptions.method || "GET").toUpperCase();
+  const requiresCsrfProtection = !["GET", "HEAD", "OPTIONS"].includes(method);
   const loadingLabel = path === "/api/auth/login"
     ? "Signing in…"
     : path.includes("forgot-password") || path.includes("resend-verification")
@@ -107,6 +108,7 @@ async function apiFetch(path, options = {}) {
       headers: {
         "Content-Type": "application/json",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(requiresCsrfProtection ? { "X-CSRF-Protection": "1" } : {}),
         ...(requestOptions.headers || {}),
       },
       signal: requestOptions.signal || controller.signal,

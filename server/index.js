@@ -8,6 +8,7 @@ import { rateLimit } from "express-rate-limit";
 import { pool } from "./db.js";
 import { isMailConfigured, sendPasswordResetEmail, sendVerificationEmail } from "./mail.js";
 import { schemas, validate } from "./validation.js";
+import { createCorsOptions, createCsrfGuard, createOriginPolicy } from "./security.js";
 
 dotenv.config();
 
@@ -22,29 +23,20 @@ if (!JWT_SECRET || (process.env.NODE_ENV === "production" && JWT_SECRET.length <
 const app = express();
 app.set("trust proxy", 1);
 
-// Browsers omit a trailing slash from the Origin header. Normalise configured
-// origins so values copied from a browser address bar still match, and allow
-// the local Vite app while the server is running in development.
-const allowedOrigins = (process.env.CORS_ORIGIN || "*")
-  .split(",")
-  .map((origin) => origin.trim().replace(/\/+$/, ""))
-  .filter(Boolean);
-const allowAnyOrigin = allowedOrigins.includes("*");
-const isDevelopment = process.env.NODE_ENV !== "production";
+let originPolicy;
+try {
+  originPolicy = createOriginPolicy({
+    configuredOrigins: process.env.CORS_ORIGIN || "",
+    nodeEnv: process.env.NODE_ENV || "development",
+  });
+} catch (error) {
+  console.error(error.message);
+  process.exit(1);
+}
 
-app.use(cors({
-  origin(origin, callback) {
-    const normalizedOrigin = origin?.replace(/\/+$/, "");
-    const isLocalOrigin = normalizedOrigin && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(normalizedOrigin);
-    const isAllowed = !origin
-      || allowAnyOrigin
-      || allowedOrigins.includes(normalizedOrigin)
-      || (isDevelopment && isLocalOrigin);
-
-    callback(isAllowed ? null : new Error(`Origin not allowed by CORS: ${origin}`), isAllowed);
-  },
-}));
-app.use(express.json());
+app.use(cors(createCorsOptions(originPolicy)));
+app.use(createCsrfGuard(originPolicy));
+app.use(express.json({ limit: "100kb", type: "application/json" }));
 
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
