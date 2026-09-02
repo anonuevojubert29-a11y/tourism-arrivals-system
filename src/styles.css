@@ -18,6 +18,7 @@ button, input, select{ max-width:100%; }
 
 .tas-sidebar{
   width:230px; flex-shrink:0; background:var(--teal-deep); color:#EAF3F1;
+  position:sticky; top:0; align-self:flex-start; height:100vh; height:100dvh; overflow-y:auto;
   display:flex; flex-direction:column; padding:20px 14px; gap:4px;
 }
 .tas-mobilebar, .tas-menuoverlay, .tas-menuclose{ display:none; }
