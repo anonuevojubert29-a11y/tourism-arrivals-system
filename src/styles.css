@@ -4,6 +4,7 @@
 html{ min-width:320px; background:#F3F6F5; }
 body { margin:0; min-width:320px; overflow-x:hidden; }
 button, input, select{ max-width:100%; }
+.sr-only{ position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
 
 .tas-root{
   --ink:#152025; --paper:#F3F6F5; --panel:#FFFFFF; --teal:#0E5C63;
@@ -277,6 +278,50 @@ table.tas-table tr:hover td{ background:#FAFCFB; }
 
 .empty-state{ text-align:center; padding:40px 20px; color:var(--muted); font-size:13px; }
 
+/* Super-admin audit history */
+.audit-page{ width:100%; max-width:1180px; }
+.audit-pagehead{ align-items:center; }
+.audit-filter-card{ margin-bottom:16px; }
+.audit-filter-card .tas-field{ margin-bottom:0; }
+.audit-search-field{ flex:1 1 290px; }
+.audit-filter-field{ flex:0 1 210px; min-width:170px; }
+.audit-page-size{ flex:0 0 86px; }
+.audit-search-control{ position:relative; }
+.audit-search-control > svg{ position:absolute; left:10px; top:50%; transform:translateY(-50%); color:var(--muted); pointer-events:none; }
+.audit-search-control input{ padding-left:33px; }
+.audit-table-card{ padding:0; overflow:hidden; }
+.audit-results-summary{ min-height:48px; padding:13px 18px; display:flex; align-items:center; justify-content:space-between; gap:12px; border-bottom:1px solid var(--line); }
+.audit-results-summary span{ font:600 13px/1.3 'Space Grotesk',sans-serif; }
+.audit-results-summary small{ color:var(--muted); font-size:11.5px; }
+.table-scroll table.audit-table{ min-width:820px; }
+.audit-table td{ height:60px; }
+.audit-table time{ white-space:nowrap; font-size:12px; }
+.audit-actor, .audit-table td > strong{ display:block; font-size:12.5px; font-weight:600; }
+.audit-secondary{ display:block; max-width:220px; margin-top:2px; color:var(--muted); font-size:10.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.audit-action-badge{ display:inline-block; padding:4px 8px; border-radius:999px; background:var(--teal-pale); color:var(--teal-deep); font-size:10.5px; font-weight:700; white-space:nowrap; }
+.audit-expand-cell{ width:48px; text-align:right; }
+.audit-expand-button{ width:32px; height:32px; display:inline-flex; align-items:center; justify-content:center; border:1px solid var(--line); border-radius:6px; background:#fff; color:var(--teal-deep); cursor:pointer; }
+.audit-expand-button:hover{ background:var(--teal-pale); }
+table.tas-table tr.audit-detail-row:hover td, .audit-detail-row td{ height:auto; padding:0 16px 16px; background:#FAFCFB; }
+.audit-detail-grid{ display:grid; grid-template-columns:minmax(180px,.8fr) minmax(150px,.6fr) minmax(240px,1.5fr); gap:12px; padding:14px; border:1px solid var(--line); border-radius:8px; background:var(--panel); }
+.audit-detail-grid > div{ min-width:0; }
+.audit-detail-grid > div > span{ display:block; margin-bottom:5px; color:var(--muted); font-size:10px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; }
+.audit-detail-grid code{ display:block; overflow-wrap:anywhere; white-space:normal; }
+.audit-change-summary{ grid-column:1 / -1; padding-top:11px; border-top:1px solid var(--line); }
+.audit-change-summary dl{ display:flex; flex-wrap:wrap; gap:8px 18px; margin:0; }
+.audit-change-summary dl > div{ display:flex; gap:6px; align-items:baseline; }
+.audit-change-summary dt{ color:var(--muted); font-size:11px; font-weight:600; }
+.audit-change-summary dd{ margin:0; font-size:12px; overflow-wrap:anywhere; }
+.audit-change-summary p{ margin:0; color:var(--muted); font-size:12px; }
+.audit-empty{ display:flex; min-height:250px; flex-direction:column; align-items:center; justify-content:center; gap:6px; }
+.audit-empty svg{ margin-bottom:6px; color:var(--teal); opacity:.55; }
+.audit-empty strong{ color:var(--ink); font:700 16px/1.3 'Space Grotesk',sans-serif; }
+.audit-empty span{ font-size:12.5px; }
+.audit-pagination{ min-height:54px; padding:10px 18px; display:flex; align-items:center; justify-content:space-between; gap:12px; border-top:1px solid var(--line); }
+.audit-pagination > span{ color:var(--muted); font-size:12px; }
+.audit-pagination > div{ display:flex; gap:8px; }
+.audit-spin{ animation:tas-spin .8s linear infinite; }
+
 /* Persistent notification inbox */
 .notifications-page{ width:100%; max-width:960px; }
 .notifications-head{ align-items:center; }
@@ -386,6 +431,7 @@ table.tas-table tr:hover td{ background:#FAFCFB; }
   .tas-pagehead{ align-items:flex-start; margin-bottom:16px; }
   .tas-pagehead h1{ font-size:20px; overflow-wrap:anywhere; }
   .tas-card{ max-width:100%; padding:16px; overflow:hidden; }
+  .audit-table-card{ padding:0; }
   .filter-toolbar > .tas-field{ flex:1 1 150px; min-width:0 !important; }
   .toolbar-actions{ width:100%; margin-left:0; }
   .toolbar-actions .btn{ flex:1; justify-content:center; }
@@ -408,6 +454,10 @@ table.tas-table tr:hover td{ background:#FAFCFB; }
   .auth-logo h2{ text-align:center; }
   .banner{ line-height:1.45; }
   .tas-json{ max-width:100%; }
+  .audit-pagehead .btn{ width:100%; justify-content:center; }
+  .audit-filter-field, .audit-page-size{ flex:1 1 150px; }
+  .audit-detail-grid{ grid-template-columns:1fr 1fr; }
+  .audit-user-agent{ grid-column:1 / -1; }
   .notifications-toolbar{ width:100%; justify-content:flex-start; }
   .notifications-toolbar .btn{ flex:1; justify-content:center; }
   .notification-item{ grid-template-columns:auto minmax(0,1fr); padding:13px; }
@@ -426,6 +476,12 @@ table.tas-table tr:hover td{ background:#FAFCFB; }
   .num-control button{ width:34px; height:34px; }
   .num-control input{ width:48px; }
   .toolbar-actions{ flex-direction:column; }
+  .audit-results-summary{ align-items:flex-start; flex-direction:column; }
+  .audit-detail-grid{ grid-template-columns:1fr; }
+  .audit-user-agent{ grid-column:auto; }
+  .audit-pagination{ align-items:stretch; flex-direction:column; }
+  .audit-pagination > div{ display:grid; grid-template-columns:1fr 1fr; }
+  .audit-pagination .btn{ justify-content:center; }
   .entry-toolbar > .tas-field{ width:100%; }
   .entry-toolbar > span{ width:100%; }
   .feedback-dialog{ padding:28px 18px 22px; border-radius:15px; }

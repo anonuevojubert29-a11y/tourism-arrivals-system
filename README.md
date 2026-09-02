@@ -163,6 +163,7 @@ src/
     StaffHistory.jsx / StaffSettings.jsx
     AccountSettings.jsx        "My account" — name + password change (any role)
     NotificationsPage.jsx      persistent per-user notification inbox
+    AuditLogsPage.jsx          searchable audit history (super admin only)
     Overview.jsx               admin/super-admin analytics dashboard
                                  (filterable by accommodation and visit type)
     PrintableReport.jsx        print-only report layout

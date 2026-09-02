@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import {
   LogOut, BarChart3, Building2, Users, Database, Moon, Sun,
-  ClipboardList, Settings as SettingsIcon, Menu, X, Bell,
+  ClipboardList, Settings as SettingsIcon, Menu, X, Bell, ScrollText,
 } from "lucide-react";
 
 const NAV = {
@@ -14,6 +14,7 @@ const NAV = {
     { id: "overview", label: "Overview", icon: BarChart3 },
     { id: "accommodations", label: "Accommodations", icon: Building2 },
     { id: "admins", label: "Admin accounts", icon: Users },
+    { id: "audit", label: "Audit logs", icon: ScrollText },
     { id: "data", label: "Data", icon: Database },
     { id: "settings", label: "Settings", icon: SettingsIcon },
   ],

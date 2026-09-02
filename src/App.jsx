@@ -13,6 +13,7 @@ import AdminAccountsPanel from "./components/AdminAccountsPanel.jsx";
 import DataPanel from "./components/DataPanel.jsx";
 import AccountSettings from "./components/AccountSettings.jsx";
 import NotificationsPage from "./components/NotificationsPage.jsx";
+import AuditLogsPage from "./components/AuditLogsPage.jsx";
 import {
   ensureSeedData, fetchUsers, fetchAccommodations, loginUser, registerAccommodation, updateAccommodation,
   updateUserAccount, restoreApiSession, logoutUser, backendMode,
@@ -455,7 +456,9 @@ export default function App() {
           />
         )}
 
-        {mainTab !== "settings" && mainTab !== "notifications" && currentUser.role === "staff" && staffAccommodation && (
+        {mainTab === "audit" && currentUser.role === "superadmin" && <AuditLogsPage />}
+
+        {mainTab !== "settings" && mainTab !== "notifications" && mainTab !== "audit" && currentUser.role === "staff" && staffAccommodation && (
           <StaffApp
             accommodation={staffAccommodation}
             tab={mainTab}
@@ -467,7 +470,7 @@ export default function App() {
           />
         )}
 
-        {mainTab !== "settings" && mainTab !== "notifications" && (currentUser.role === "admin" || currentUser.role === "superadmin") && (
+        {mainTab !== "settings" && mainTab !== "notifications" && mainTab !== "audit" && (currentUser.role === "admin" || currentUser.role === "superadmin") && (
           <>
             <div className="tas-pagehead">
               <div>

@@ -424,6 +424,14 @@ export async function clearNotifications(userId) {
   return kvSetJSON(NOTIFICATIONS_KEY, notifications.filter((item) => item.userId !== userId));
 }
 
+export async function fetchAuditLogs({ limit = 500, silent = true } = {}) {
+  if (!hasApi) {
+    throw new Error("Audit logs require the MySQL-backed server.");
+  }
+  const params = new URLSearchParams({ limit: String(limit) });
+  return (await apiFetch(`/api/audit-logs?${params.toString()}`, { silent })) || [];
+}
+
 export async function updateUserAccount(userId, { name, email, currentPassword, newPassword } = {}) {
   if (hasApi) {
     try {
