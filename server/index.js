@@ -7,6 +7,7 @@ import crypto from "crypto";
 import { rateLimit } from "express-rate-limit";
 import { pool } from "./db.js";
 import { isMailConfigured, sendPasswordResetEmail, sendVerificationEmail } from "./mail.js";
+import { schemas, validate } from "./validation.js";
 
 dotenv.config();
 
@@ -274,6 +275,7 @@ app.delete(
   "/api/accommodations/:id",
   requireAuth,
   requireRole("superadmin"),
+  validate({ params: schemas.idParams }),
   ah(async (req, res) => {
     const { id } = req.params;
     const connection = await pool.getConnection();
@@ -305,6 +307,7 @@ app.delete(
 app.patch(
   "/api/accommodations/:id",
   requireAuth,
+  validate({ params: schemas.idParams, body: schemas.accommodationPatch }),
   ah(async (req, res) => {
     const { id } = req.params;
     if (req.user.role === "staff") {
@@ -413,6 +416,7 @@ app.patch(
 app.patch(
   "/api/notifications/:id/read",
   requireAuth,
+  validate({ params: schemas.notificationIdParams }),
   ah(async (req, res) => {
     const [result] = await pool.query(
       "UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?",
@@ -426,6 +430,7 @@ app.patch(
 app.delete(
   "/api/notifications/:id",
   requireAuth,
+  validate({ params: schemas.notificationIdParams }),
   ah(async (req, res) => {
     const [result] = await pool.query(
       "DELETE FROM notifications WHERE id = ? AND user_id = ?",
@@ -463,6 +468,7 @@ app.post(
   "/api/users",
   requireAuth,
   requireRole("superadmin"),
+  validate({ body: schemas.createAdmin }),
   ah(async (req, res) => {
     const { name, username, email, password } = req.body || {};
     if (!name || !username || !email || !password) return res.status(400).json({ error: "All fields are required." });
@@ -519,6 +525,7 @@ app.delete(
   "/api/users/:id",
   requireAuth,
   requireRole("superadmin"),
+  validate({ params: schemas.idParams }),
   ah(async (req, res) => {
     const { id } = req.params;
     if (req.user.id === id) {
@@ -543,6 +550,7 @@ app.delete(
 app.patch(
   "/api/users/:id",
   requireAuth,
+  validate({ params: schemas.idParams, body: schemas.userAccountPatch }),
   ah(async (req, res) => {
     const { id } = req.params;
     if (req.user.id !== id) {
@@ -631,6 +639,7 @@ app.patch(
 app.post(
   "/api/auth/login",
   loginLimiter,
+  validate({ body: schemas.login }),
   ah(async (req, res) => {
     const { username, password } = req.body || {};
     if (!username || !password) return res.status(400).json({ error: "Missing credentials" });
@@ -658,6 +667,7 @@ app.get("/api/auth/me", requireAuth, (req, res) => {
 app.post(
   "/api/auth/register",
   registrationLimiter,
+  validate({ body: schemas.register }),
   ah(async (req, res) => {
     const { accName, municipality, address, contactPerson, contactNumber, permitNumber, username, email, password } = req.body || {};
     if (!accName || !username || !email || !password) return res.status(400).json({ error: "All required fields must be completed." });
@@ -738,6 +748,7 @@ app.post(
 app.post(
   "/api/auth/verify-email",
   emailActionLimiter,
+  validate({ body: schemas.token }),
   ah(async (req, res) => {
     const token = String(req.body?.token || "");
     if (!token) return res.status(400).json({ error: "Verification token is required." });
@@ -774,6 +785,7 @@ app.post(
 app.post(
   "/api/auth/resend-verification",
   emailActionLimiter,
+  validate({ body: schemas.email }),
   ah(async (req, res) => {
     if (!requireMailService(res)) return;
     const email = normalizeEmail(req.body?.email);
@@ -804,6 +816,7 @@ app.post(
 app.post(
   "/api/auth/forgot-password",
   emailActionLimiter,
+  validate({ body: schemas.email }),
   ah(async (req, res) => {
     if (!requireMailService(res)) return;
     const email = normalizeEmail(req.body?.email);
@@ -834,6 +847,7 @@ app.post(
 app.post(
   "/api/auth/reset-password",
   emailActionLimiter,
+  validate({ body: schemas.resetPassword }),
   ah(async (req, res) => {
     const token = String(req.body?.token || "");
     const newPassword = req.body?.newPassword;
@@ -903,6 +917,7 @@ async function loadArrivalWithForeign(arrivalRow) {
 app.get(
   "/api/arrivals",
   requireAuth,
+  validate({ query: schemas.arrivalQuery }),
   ah(async (req, res) => {
     const { from, to, accommodationId, visitType } = req.query;
     const clauses = [];
@@ -951,6 +966,7 @@ app.get(
 app.get(
   "/api/arrivals/:accommodationId/:visitType/:date",
   requireAuth,
+  validate({ params: schemas.arrivalParams }),
   ah(async (req, res) => {
     const { accommodationId, visitType, date } = req.params;
     if (!canAccessAccommodation(req.user, accommodationId)) {
@@ -970,6 +986,7 @@ app.put(
   "/api/arrivals/:accommodationId/:visitType/:date",
   requireAuth,
   requireRole("staff"),
+  validate({ params: schemas.arrivalParams, body: schemas.arrivalBody }),
   ah(async (req, res) => {
     const { accommodationId, visitType, date } = req.params;
     if (req.user.accommodationId !== accommodationId) {
@@ -1052,6 +1069,9 @@ app.put(
 
 app.use((err, req, res, next) => {
   console.error(err);
+  if (err?.type === "entity.parse.failed") {
+    return res.status(400).json({ error: "Request body contains invalid JSON." });
+  }
   if (err.code === "ER_DUP_ENTRY") {
     return res.status(409).json({ error: "That username or email address is already registered." });
   }

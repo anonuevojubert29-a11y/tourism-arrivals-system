@@ -6,7 +6,8 @@
   "scripts": {
     "migrate": "node migrate.js",
     "start": "node index.js",
-    "dev": "node --watch index.js"
+    "dev": "node --watch index.js",
+    "test": "node --test"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -16,6 +17,7 @@
     "express-rate-limit": "^8.2.1",
     "jsonwebtoken": "^9.0.2",
     "mysql2": "^3.11.0",
-    "nodemailer": "^9.0.5"
+    "nodemailer": "^9.0.5",
+    "zod": "^4.5.4"
   }
 }
